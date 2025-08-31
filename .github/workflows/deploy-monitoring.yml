@@ -1,0 +1,448 @@
+name: Deploy with Comprehensive Monitoring
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '18'
+  DEPLOYMENT_START_TIME: ${{ github.run_started_at }}
+
+jobs:
+  # Pre-deployment validation and quality checks
+  validate:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      should-deploy: ${{ steps.changes.outputs.should-deploy }}
+      deployment-id: ${{ steps.deployment.outputs.deployment_id }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            node_modules
+            .next/cache
+          key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-deps-
+
+      - name: Install Dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Validate Environment Configuration
+        run: npm run env:validate
+
+      - name: Run Type Checking
+        run: npm run type-check
+
+      - name: Run Linting (Strict)
+        run: npm run lint:strict
+
+      - name: Run Security Audit
+        run: npm run security:audit
+        continue-on-error: true
+
+      - name: Check for Changes
+        id: changes
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+          else
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Deployment
+        id: deployment
+        if: steps.changes.outputs.should-deploy == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: context.ref === 'refs/heads/main' ? 'production' : 'staging',
+              description: `Deploy ${context.sha.substring(0, 7)} to ${context.ref === 'refs/heads/main' ? 'production' : 'staging'}`,
+              auto_merge: false,
+              required_contexts: []
+            });
+            core.setOutput('deployment_id', deployment.data.id);
+            return deployment.data.id;
+
+      - name: Notify Deployment Start
+        if: steps.changes.outputs.should-deploy == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: deployment } = await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: '${{ steps.deployment.outputs.deployment_id }}',
+              state: 'pending',
+              description: 'Deployment validation in progress...',
+              environment_url: `https://${context.repo.repo}-${context.ref === 'refs/heads/main' ? 'production' : 'staging'}.vercel.app`
+            });
+
+  # Build and test phase
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should-deploy == 'true'
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore Dependencies Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            node_modules
+            .next/cache
+          key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Run Build with Optimization
+        run: npm run build:optimize
+        env:
+          ANALYZE: false
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Run Bundle Size Analysis
+        run: npm run size-limit:ci
+        continue-on-error: true
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            .next/
+            size-limit-report.json
+          retention-days: 7
+
+      - name: Report Build Status
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: deployment } = await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: '${{ needs.validate.outputs.deployment-id }}',
+              state: 'error',
+              description: 'Build failed - check logs for details'
+            });
+
+  # Deploy to Vercel
+  deploy:
+    name: Deploy to Vercel
+    runs-on: ubuntu-latest
+    needs: [validate, build-and-test]
+    if: needs.validate.outputs.should-deploy == 'true'
+    timeout-minutes: 15
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+
+    outputs:
+      deployment-url: ${{ steps.vercel-deploy.outputs.url }}
+      preview-url: ${{ steps.vercel-deploy.outputs.preview-url }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Deploy to Vercel
+        id: vercel-deploy
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            DEPLOYMENT_URL=$(vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes)
+          else
+            DEPLOYMENT_URL=$(vercel deploy --token=${{ secrets.VERCEL_TOKEN }} --yes)
+          fi
+          echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "preview-url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployed to: $DEPLOYMENT_URL"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Update Deployment Status (Success)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: deployment } = await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: '${{ needs.validate.outputs.deployment-id }}',
+              state: 'success',
+              description: 'Deployment successful',
+              environment_url: '${{ steps.vercel-deploy.outputs.url }}'
+            });
+
+      - name: Update Deployment Status (Failure)
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: deployment } = await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: '${{ needs.validate.outputs.deployment-id }}',
+              state: 'failure',
+              description: 'Deployment failed - check logs for details'
+            });
+
+  # Post-deployment monitoring and testing
+  post-deploy-monitoring:
+    name: Post-Deployment Monitoring
+    runs-on: ubuntu-latest
+    needs: [validate, deploy]
+    if: needs.validate.outputs.should-deploy == 'true' && needs.deploy.result == 'success'
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Health Check
+        id: health-check
+        run: |
+          DEPLOYMENT_URL="${{ needs.deploy.outputs.deployment-url }}"
+          echo "Testing health endpoint: ${DEPLOYMENT_URL}/healthz"
+
+          for i in {1..5}; do
+            if curl -f -s "${DEPLOYMENT_URL}/healthz" > /dev/null; then
+              echo "✅ Health check passed on attempt $i"
+              echo "status=healthy" >> $GITHUB_OUTPUT
+              break
+            else
+              echo "❌ Health check failed on attempt $i"
+              if [ $i -eq 5 ]; then
+                echo "status=unhealthy" >> $GITHUB_OUTPUT
+                exit 1
+              fi
+              sleep 10
+            fi
+          done
+
+      - name: Performance Test (Lighthouse)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          npm install -g lighthouse
+          lighthouse "${{ needs.deploy.outputs.deployment-url }}" \
+            --output json \
+            --output-path lighthouse-results.json \
+            --chrome-flags="--headless --no-sandbox" \
+            --quiet || true
+
+      - name: Upload Performance Results
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-results
+          path: lighthouse-results.json
+          retention-days: 30
+
+      - name: Security Headers Check
+        run: |
+          DEPLOYMENT_URL="${{ needs.deploy.outputs.deployment-url }}"
+          echo "Checking security headers..."
+
+          HEADERS=$(curl -I -s "$DEPLOYMENT_URL")
+
+          if echo "$HEADERS" | grep -q "X-Frame-Options"; then
+            echo "✅ X-Frame-Options header present"
+          else
+            echo "❌ X-Frame-Options header missing"
+          fi
+
+          if echo "$HEADERS" | grep -q "X-Content-Type-Options"; then
+            echo "✅ X-Content-Type-Options header present"
+          else
+            echo "❌ X-Content-Type-Options header missing"
+          fi
+
+  # Notification and reporting
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [validate, deploy, post-deploy-monitoring]
+    if: always() && needs.validate.outputs.should-deploy == 'true'
+
+    steps:
+      - name: Determine Deployment Status
+        id: status
+        run: |
+          if [[ "${{ needs.deploy.result }}" == "success" && "${{ needs.post-deploy-monitoring.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=Deployment completed successfully with all health checks passing" >> $GITHUB_OUTPUT
+            echo "color=#28a745" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.deploy.result }}" == "success" ]]; then
+            echo "status=warning" >> $GITHUB_OUTPUT
+            echo "message=Deployment succeeded but post-deployment checks failed" >> $GITHUB_OUTPUT
+            echo "color=#ffc107" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=Deployment failed" >> $GITHUB_OUTPUT
+            echo "color=#dc3545" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Notify Slack
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "text": "Deployment Notification",
+              "attachments": [
+                {
+                  "color": "${{ steps.status.outputs.color }}",
+                  "blocks": [
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*${{ github.repository }}* deployment ${{ steps.status.outputs.status }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "fields": [
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Environment:*\n${{ github.ref == 'refs/heads/main' && 'Production' || 'Staging' }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Commit:*\n<${{ github.event.head_commit.url }}|${{ github.sha }}>"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*Author:*\n${{ github.actor }}"
+                        },
+                        {
+                          "type": "mrkdwn",
+                          "text": "*URL:*\n<${{ needs.deploy.outputs.deployment-url }}|View Deployment>"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "${{ steps.status.outputs.message }}"
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Logs"
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create GitHub Issue on Failure
+        if: steps.status.outputs.status == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Deployment Failure - ${context.sha.substring(0, 7)}`,
+              body: `
+            ## Deployment Failed
+
+            **Commit:** ${context.sha}
+            **Author:** ${context.actor}
+            **Branch:** ${context.ref.replace('refs/heads/', '')}
+            **Workflow:** [${context.workflow}](${context.server_url}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+
+            ### Details
+            - Environment: ${context.ref === 'refs/heads/main' ? 'Production' : 'Staging'}
+            - Timestamp: ${new Date().toISOString()}
+            - Run ID: ${context.runId}
+
+            ### Action Required
+            Please investigate the deployment failure and take appropriate action.
+
+            **Auto-generated by GitHub Actions**
+              `,
+              labels: ['deployment', 'bug', 'urgent']
+            });

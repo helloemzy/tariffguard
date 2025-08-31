@@ -1,0 +1,552 @@
+name: Advanced Code Quality Analysis
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 6 * * 1' # Weekly on Mondays at 6 AM UTC
+
+env:
+  NODE_VERSION: '18.x'
+  FORCE_COLOR: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: Setup Dependencies
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache.outputs.cache-hit }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache dependencies
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          npm ci --prefer-offline --no-audit --progress=false
+          npm rebuild && npm run prepare --if-present
+
+      - name: Create quality reports directory
+        run: mkdir -p quality-reports
+
+  complexity-analysis:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Run complexity analysis
+        run: |
+          mkdir -p quality-reports
+          npm run quality:complexity || true
+          npm run quality:complexity-simple || true
+
+      - name: Upload complexity reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: complexity-reports
+          path: quality-reports/complexity*
+          retention-days: 30
+
+  duplication-analysis:
+    name: Code Duplication Detection
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Run duplication detection
+        run: |
+          mkdir -p quality-reports
+          npm run quality:duplicates || true
+
+      - name: Upload duplication reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: duplication-reports
+          path: quality-reports/duplicates/
+          retention-days: 30
+
+  dependency-analysis:
+    name: Dependency & Import Analysis
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Analyze dependencies
+        run: |
+          mkdir -p quality-reports
+          npm run quality:dependencies || true
+          npm run quality:unused || true
+          npm run quality:imports || true
+
+      - name: Upload dependency reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-reports
+          path: |
+            quality-reports/dependencies.svg
+            quality-reports/imports.json
+            .unimported.json
+          retention-days: 30
+
+  type-coverage:
+    name: TypeScript Coverage Analysis
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Run type coverage analysis
+        run: |
+          mkdir -p quality-reports
+          npm run quality:type-coverage || true
+
+      - name: Upload type coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: type-coverage-reports
+          path: quality-reports/type-coverage/
+          retention-days: 30
+
+  advanced-security:
+    name: Advanced Security Scanning
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Authenticate Snyk
+        run: |
+          if [ -n "${{ secrets.SNYK_TOKEN }}" ]; then
+            npx snyk auth ${{ secrets.SNYK_TOKEN }}
+          else
+            echo "Snyk token not available, skipping authentication"
+          fi
+
+      - name: Run security scans
+        run: |
+          mkdir -p quality-reports
+          npm run security:all || true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            quality-reports/snyk.json
+            quality-reports/audit-ci.json
+            quality-reports/retire.json
+          retention-days: 30
+
+  build-and-performance:
+    name: Build & Performance Analysis
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_NAME: 'TariffGuard'
+
+      - name: Analyze bundle size
+        run: |
+          mkdir -p quality-reports
+          npm run size-limit:ci || true
+          npm run performance:bundlesize || true
+
+      - name: Cache build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+            .next/standalone
+            .next/static
+          key: ${{ runner.os }}-build-${{ github.sha }}
+
+      - name: Upload performance reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-reports
+          path: |
+            size-limit-report.json
+            bundlesize-report.json
+          retention-days: 30
+
+  accessibility-testing:
+    name: Accessibility Compliance Testing
+    runs-on: ubuntu-latest
+    needs: build-and-performance
+    if: github.event_name != 'schedule'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+          key: ${{ runner.os }}-quality-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+            .next/standalone
+            .next/static
+          key: ${{ runner.os }}-build-${{ github.sha }}
+
+      - name: Install if cache miss
+        run: |
+          if [ ! -d "node_modules" ]; then npm ci --prefer-offline --no-audit; fi
+
+      - name: Start application
+        run: |
+          npm run start &
+          echo "APP_PID=$!" >> $GITHUB_ENV
+          sleep 30
+        env:
+          NODE_ENV: production
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Wait for application to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Application is ready"
+              break
+            fi
+            echo "Waiting for application... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run accessibility tests
+        run: |
+          mkdir -p quality-reports
+          npm run accessibility:all || true
+
+      - name: Stop application
+        if: always()
+        run: |
+          if [ -n "$APP_PID" ]; then
+            kill $APP_PID || true
+          fi
+
+      - name: Upload accessibility reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-reports
+          path: |
+            quality-reports/axe.json
+            quality-reports/pa11y.json
+            quality-reports/unlighthouse/
+          retention-days: 30
+
+  quality-report:
+    name: Generate Quality Report
+    runs-on: ubuntu-latest
+    needs:
+      [
+        complexity-analysis,
+        duplication-analysis,
+        dependency-analysis,
+        type-coverage,
+        advanced-security,
+        build-and-performance,
+      ]
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Create reports directory
+        run: mkdir -p quality-reports
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: quality-reports/
+          merge-multiple: true
+
+      - name: Generate comprehensive quality report
+        run: |
+          node scripts/quality-report.js || true
+          ls -la quality-reports/
+
+      - name: Upload final quality report
+        uses: actions/upload-artifact@v4
+        with:
+          name: comprehensive-quality-report
+          path: |
+            quality-reports/quality-dashboard.html
+            quality-reports/quality-summary.json
+          retention-days: 90
+
+      - name: Comment PR with quality report
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = './quality-reports/quality-summary.json';
+
+            if (fs.existsSync(path)) {
+              const summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+              
+              const getScoreEmoji = (score) => {
+                if (score >= 80) return '✅';
+                if (score >= 60) return '⚠️';
+                return '❌';
+              };
+              
+              const formatCategory = (category) => {
+                const names = {
+                  complexity: 'Code Complexity',
+                  duplication: 'Code Duplication', 
+                  security: 'Security',
+                  accessibility: 'Accessibility',
+                  typeCoverage: 'Type Coverage'
+                };
+                return names[category] || category;
+              };
+              
+              let comment = `## 🛡️ Code Quality Report\n\n`;
+              comment += `**Overall Score:** ${getScoreEmoji(summary.overallScore)} ${summary.overallScore}/100\n\n`;
+              comment += `### 📊 Category Scores\n`;
+              
+              Object.entries(summary.scores).forEach(([category, data]) => {
+                comment += `- ${getScoreEmoji(data.score)} **${formatCategory(category)}:** ${data.score}/100\n`;
+              });
+              
+              comment += `\n### 📋 Summary\n`;
+              comment += `- **Total Issues:** ${summary.metrics.totalIssues}\n`;
+              comment += `- **Critical Issues:** ${summary.metrics.criticalIssues}\n`;
+              comment += `- **Warning Issues:** ${summary.metrics.warningIssues}\n`;
+              
+              if (summary.recommendations.length > 0) {
+                comment += `\n### 💡 Top Recommendations\n`;
+                summary.recommendations.slice(0, 3).forEach(rec => {
+                  const emoji = rec.priority === 'critical' ? '🚨' : rec.priority === 'high' ? '⚠️' : 'ℹ️';
+                  comment += `- ${emoji} ${rec.message}\n`;
+                });
+              }
+              
+              comment += `\n📊 [View Full Dashboard](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
+
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [quality-report]
+    if: always()
+    steps:
+      - name: Download quality summary
+        uses: actions/download-artifact@v4
+        with:
+          name: comprehensive-quality-report
+          path: ./
+
+      - name: Quality gate check
+        run: |
+          if [ -f "quality-summary.json" ]; then
+            OVERALL_SCORE=$(cat quality-summary.json | jq -r '.overallScore // 0')
+            CRITICAL_ISSUES=$(cat quality-summary.json | jq -r '.metrics.criticalIssues // 0')
+            
+            echo "Overall Score: $OVERALL_SCORE"
+            echo "Critical Issues: $CRITICAL_ISSUES"
+            
+            if [ "$CRITICAL_ISSUES" -gt "0" ]; then
+              echo "::error::Quality gate failed: $CRITICAL_ISSUES critical issues found"
+              exit 1
+            elif [ "$OVERALL_SCORE" -lt "70" ]; then
+              echo "::warning::Quality gate warning: Overall score $OVERALL_SCORE is below 70"
+              # Don't fail for score, just warn
+            else
+              echo "::notice::Quality gate passed: Score $OVERALL_SCORE, No critical issues"
+            fi
+          else
+            echo "::warning::Quality summary not found, skipping quality gate"
+          fi

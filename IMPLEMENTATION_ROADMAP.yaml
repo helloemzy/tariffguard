@@ -1,0 +1,476 @@
+plan:
+  objective: 'Launch TariffGuard MVP - a SaaS platform for automated tariff monitoring that protects import/export businesses from margin erosion due to unnoticed duty rate changes'
+
+  phases:
+    # PHASE 1: Foundation & Infrastructure (Week 1-2)
+    - name: 'Foundation Setup'
+      description: 'Establish core infrastructure, development environment, and data architecture'
+      tasks:
+        - id: 'infra-01'
+          description: 'Set up development environment with Next.js 14, TypeScript, and Tailwind CSS'
+          agent: 'Full-stack Developer'
+          dependencies: []
+          estimated_time: '4 hours'
+          priority: 'high'
+          deliverables:
+            ['Configured Next.js project', 'TypeScript setup', 'Tailwind configuration']
+
+        - id: 'infra-02'
+          description: 'Configure Supabase database with schema for HS codes, users, and tariff history'
+          agent: 'Full-stack Developer'
+          dependencies: ['infra-01']
+          estimated_time: '8 hours'
+          priority: 'high'
+          deliverables:
+            ['Database schema', 'Supabase project setup', 'Migration scripts']
+
+        - id: 'infra-03'
+          description: 'Implement authentication system with Supabase Auth'
+          agent: 'Full-stack Developer'
+          dependencies: ['infra-02']
+          estimated_time: '6 hours'
+          priority: 'high'
+          deliverables:
+            ['User registration flow', 'Login/logout functionality', 'Password reset']
+
+        - id: 'infra-04'
+          description: 'Set up Vercel deployment pipeline with environment variables'
+          agent: 'DevOps/Full-stack Developer'
+          dependencies: ['infra-01']
+          estimated_time: '3 hours'
+          priority: 'medium'
+          deliverables:
+            ['Vercel project configuration', 'CI/CD pipeline', 'Environment setup']
+
+        - id: 'infra-05'
+          description: 'Integrate monitoring tools (Sentry, Vercel Analytics)'
+          agent: 'Full-stack Developer'
+          dependencies: ['infra-04']
+          estimated_time: '3 hours'
+          priority: 'medium'
+          deliverables:
+            ['Error tracking setup', 'Analytics integration', 'Performance monitoring']
+
+    # PHASE 2: Data Integration Layer (Week 2-3)
+    - name: 'External Data Integration'
+      description: 'Connect to government data sources and build change detection engine'
+      tasks:
+        - id: 'data-01'
+          description: 'Integrate Federal Register API for proposed rule changes'
+          agent: 'Backend Developer'
+          dependencies: ['infra-02']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables: ['API integration', 'Data parsing logic', 'Rate limiter']
+
+        - id: 'data-02'
+          description: 'Build USITC DataWeb scraper for current tariff rates'
+          agent: 'Backend Developer'
+          dependencies: ['infra-02']
+          estimated_time: '16 hours'
+          priority: 'high'
+          deliverables: ['Web scraper', 'Data extraction logic', 'Rate validation']
+
+        - id: 'data-03'
+          description: 'Implement CBP CSMS bulletin parser'
+          agent: 'Backend Developer'
+          dependencies: ['infra-02']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables:
+            ['Bulletin parser', 'Change notification system', 'Data storage']
+
+        - id: 'data-04'
+          description: 'Create HS code validation service using HTSUS database'
+          agent: 'Backend Developer'
+          dependencies: ['infra-02']
+          estimated_time: '8 hours'
+          priority: 'medium'
+          deliverables: ['HS code validator', 'Description lookup', 'Category mapping']
+
+        - id: 'data-05'
+          description: 'Build data normalization and storage layer'
+          agent: 'Backend Developer'
+          dependencies: ['data-01', 'data-02', 'data-03']
+          estimated_time: '10 hours'
+          priority: 'high'
+          deliverables: ['Data models', 'Normalization logic', 'Storage optimization']
+
+    # PHASE 3: Monitoring Engine (Week 3-4)
+    - name: 'Change Detection & Alerting'
+      description: 'Implement core monitoring logic and notification system'
+      tasks:
+        - id: 'monitor-01'
+          description: 'Build change detection algorithm for tariff rate variations'
+          agent: 'Backend Developer'
+          dependencies: ['data-05']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables:
+            ['Detection algorithm', 'Comparison logic', 'Change threshold system']
+
+        - id: 'monitor-02'
+          description: 'Implement Vercel Cron jobs for scheduled monitoring'
+          agent: 'Backend Developer'
+          dependencies: ['monitor-01', 'infra-04']
+          estimated_time: '8 hours'
+          priority: 'high'
+          deliverables: ['Cron job configuration', 'Scheduling logic', 'Job monitoring']
+
+        - id: 'monitor-03'
+          description: 'Set up Upstash Queue for job processing'
+          agent: 'Backend Developer'
+          dependencies: ['monitor-02']
+          estimated_time: '6 hours'
+          priority: 'medium'
+          deliverables: ['Queue setup', 'Job processing', 'Retry logic']
+
+        - id: 'monitor-04'
+          description: 'Integrate Resend for email notifications'
+          agent: 'Backend Developer'
+          dependencies: ['monitor-01']
+          estimated_time: '6 hours'
+          priority: 'high'
+          deliverables: ['Email templates', 'Send logic', 'Delivery tracking']
+
+        - id: 'monitor-05'
+          description: 'Implement Twilio SMS alerts for critical changes'
+          agent: 'Backend Developer'
+          dependencies: ['monitor-01']
+          estimated_time: '6 hours'
+          priority: 'medium'
+          deliverables: ['SMS integration', 'Alert triggers', 'Rate limiting']
+
+        - id: 'monitor-06'
+          description: 'Create alert preference management system'
+          agent: 'Full-stack Developer'
+          dependencies: ['monitor-04', 'monitor-05']
+          estimated_time: '8 hours'
+          priority: 'medium'
+          deliverables: ['Preference UI', 'Notification rules', 'Frequency controls']
+
+    # PHASE 4: User Interface (Week 5-6)
+    - name: 'Frontend Development'
+      description: 'Build user-facing dashboard and tools'
+      tasks:
+        - id: 'ui-01'
+          description: 'Design and implement product monitoring dashboard'
+          agent: 'Frontend Developer + UX Designer'
+          dependencies: ['infra-03', 'monitor-01']
+          estimated_time: '20 hours'
+          priority: 'high'
+          deliverables:
+            [
+              'Dashboard UI',
+              'HS code management',
+              'Status indicators',
+              'Trend visualization',
+            ]
+
+        - id: 'ui-02'
+          description: 'Build Quote Helper tool with duty calculator'
+          agent: 'Frontend Developer'
+          dependencies: ['data-04', 'ui-01']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables: ['Quote interface', 'Calculator logic', 'Export functionality']
+
+        - id: 'ui-03'
+          description: 'Create change history timeline view'
+          agent: 'Frontend Developer'
+          dependencies: ['ui-01']
+          estimated_time: '10 hours'
+          priority: 'medium'
+          deliverables:
+            ['Timeline UI', 'Source documentation links', 'Impact calculator']
+
+        - id: 'ui-04'
+          description: 'Implement alert management interface'
+          agent: 'Frontend Developer'
+          dependencies: ['monitor-06', 'ui-01']
+          estimated_time: '8 hours'
+          priority: 'medium'
+          deliverables:
+            ['Alert settings UI', 'Notification history', 'Test alert system']
+
+        - id: 'ui-05'
+          description: 'Build onboarding flow for new users'
+          agent: 'Frontend Developer + UX Designer'
+          dependencies: ['ui-01']
+          estimated_time: '10 hours'
+          priority: 'medium'
+          deliverables:
+            ['Onboarding wizard', 'HS code setup guide', 'Tutorial tooltips']
+
+        - id: 'ui-06'
+          description: 'Implement responsive mobile design'
+          agent: 'Frontend Developer'
+          dependencies: ['ui-01', 'ui-02', 'ui-03']
+          estimated_time: '12 hours'
+          priority: 'medium'
+          deliverables:
+            ['Mobile-responsive layouts', 'Touch interactions', 'Mobile navigation']
+
+    # PHASE 5: Payment & Billing (Week 6)
+    - name: 'Monetization Setup'
+      description: 'Integrate payment processing and subscription management'
+      tasks:
+        - id: 'pay-01'
+          description: 'Integrate Stripe payment processing'
+          agent: 'Full-stack Developer'
+          dependencies: ['infra-03']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables: ['Stripe integration', 'Payment flow', 'Webhook handlers']
+
+        - id: 'pay-02'
+          description: 'Implement subscription tier logic (Free/Pro/Business)'
+          agent: 'Backend Developer'
+          dependencies: ['pay-01']
+          estimated_time: '10 hours'
+          priority: 'high'
+          deliverables: ['Tier management', 'Feature gating', 'Usage limits']
+
+        - id: 'pay-03'
+          description: 'Build billing dashboard and invoice system'
+          agent: 'Frontend Developer'
+          dependencies: ['pay-01', 'pay-02']
+          estimated_time: '8 hours'
+          priority: 'medium'
+          deliverables: ['Billing UI', 'Invoice generation', 'Payment history']
+
+        - id: 'pay-04'
+          description: 'Implement usage tracking and limits enforcement'
+          agent: 'Backend Developer'
+          dependencies: ['pay-02']
+          estimated_time: '6 hours'
+          priority: 'medium'
+          deliverables: ['Usage tracking', 'Limit enforcement', 'Upgrade prompts']
+
+    # PHASE 6: Testing & Quality Assurance (Week 7)
+    - name: 'Testing & Optimization'
+      description: 'Comprehensive testing and performance optimization'
+      tasks:
+        - id: 'test-01'
+          description: 'Conduct unit testing for core monitoring logic'
+          agent: 'QA Engineer/Developer'
+          dependencies: ['monitor-01', 'data-05']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables: ['Unit tests', 'Test coverage report', 'Bug fixes']
+
+        - id: 'test-02'
+          description: 'Perform integration testing with external APIs'
+          agent: 'QA Engineer/Developer'
+          dependencies: ['data-01', 'data-02', 'data-03']
+          estimated_time: '10 hours'
+          priority: 'high'
+          deliverables: ['Integration tests', 'API mocks', 'Error handling']
+
+        - id: 'test-03'
+          description: 'Execute end-to-end user flow testing'
+          agent: 'QA Engineer'
+          dependencies: ['ui-05', 'pay-03']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables: ['E2E test suite', 'User flow validation', 'Bug reports']
+
+        - id: 'test-04'
+          description: 'Conduct performance testing and optimization'
+          agent: 'Full-stack Developer'
+          dependencies: ['test-01', 'test-02']
+          estimated_time: '10 hours'
+          priority: 'medium'
+          deliverables:
+            ['Performance metrics', 'Optimization report', 'Caching strategy']
+
+        - id: 'test-05'
+          description: 'Security audit and vulnerability assessment'
+          agent: 'Security Consultant/Developer'
+          dependencies: ['test-03']
+          estimated_time: '8 hours'
+          priority: 'high'
+          deliverables:
+            ['Security report', 'Vulnerability fixes', 'Compliance checklist']
+
+    # PHASE 7: Beta Launch (Week 8)
+    - name: 'Beta Testing & Launch'
+      description: 'Onboard beta users and prepare for public launch'
+      tasks:
+        - id: 'beta-01'
+          description: 'Recruit and onboard 6 beta users (including Preston)'
+          agent: 'Founder/Product Manager'
+          dependencies: ['test-03']
+          estimated_time: '8 hours'
+          priority: 'high'
+          deliverables: ['Beta user list', 'Onboarding materials', 'NDA agreements']
+
+        - id: 'beta-02'
+          description: 'Set up customer support system and documentation'
+          agent: 'Product Manager/Support'
+          dependencies: ['ui-05']
+          estimated_time: '12 hours'
+          priority: 'high'
+          deliverables: ['Help documentation', 'Support ticket system', 'FAQ page']
+
+        - id: 'beta-03'
+          description: 'Implement feedback collection and tracking system'
+          agent: 'Product Manager'
+          dependencies: ['beta-01']
+          estimated_time: '6 hours'
+          priority: 'medium'
+          deliverables: ['Feedback forms', 'Issue tracker', 'Feature request board']
+
+        - id: 'beta-04'
+          description: 'Address critical beta feedback and bug fixes'
+          agent: 'Full-stack Developer'
+          dependencies: ['beta-03']
+          estimated_time: '20 hours'
+          priority: 'high'
+          deliverables: ['Bug fixes', 'UI improvements', 'Performance enhancements']
+
+        - id: 'beta-05'
+          description: 'Prepare production deployment and monitoring'
+          agent: 'DevOps/Full-stack Developer'
+          dependencies: ['beta-04', 'test-05']
+          estimated_time: '8 hours'
+          priority: 'high'
+          deliverables:
+            ['Production config', 'Monitoring dashboards', 'Backup strategy']
+
+        - id: 'beta-06'
+          description: 'Execute go-to-market launch activities'
+          agent: 'Founder/Marketing'
+          dependencies: ['beta-05']
+          estimated_time: '16 hours'
+          priority: 'high'
+          deliverables:
+            ['Launch announcement', 'Content marketing', 'Google Ads campaign']
+
+  critical_path:
+    [
+      'infra-01',
+      'infra-02',
+      'data-01',
+      'data-02',
+      'monitor-01',
+      'ui-01',
+      'test-03',
+      'beta-01',
+      'beta-04',
+      'beta-05',
+    ]
+
+  risks:
+    - description: 'Government API changes or rate limiting'
+      impact: 'high'
+      mitigation: 'Implement multiple data sources, caching layers, and fallback scraping mechanisms. Build relationships with data providers.'
+
+    - description: 'Accuracy of tariff change detection'
+      impact: 'high'
+      mitigation: 'Multi-source verification, manual review queue for edge cases, clear disclaimer on beta limitations'
+
+    - description: 'Scalability issues with high-frequency monitoring'
+      impact: 'medium'
+      mitigation: 'Implement efficient caching, use queue-based processing, optimize database queries, plan for horizontal scaling'
+
+    - description: 'Beta user engagement and retention'
+      impact: 'medium'
+      mitigation: 'Personal onboarding calls, weekly check-ins, rapid response to feedback, clear value demonstration'
+
+    - description: 'Competition from established platforms (Flexport)'
+      impact: 'medium'
+      mitigation: 'Focus on SMB market niche, faster implementation, better pricing, specialized features'
+
+    - description: 'Technical debt from rapid MVP development'
+      impact: 'low'
+      mitigation: 'Maintain clean code standards, document decisions, plan refactoring sprints post-launch'
+
+    - description: 'Compliance and legal requirements'
+      impact: 'medium'
+      mitigation: 'Early legal review, clear terms of service, data privacy compliance, limitation of liability clauses'
+
+  success_criteria:
+    - 'Successfully monitor and alert on 10+ HS codes with <24 hour detection latency'
+    - 'Achieve 99% uptime during beta period'
+    - 'Onboard 6+ active beta users with 80% weekly engagement'
+    - 'Process 1000+ tariff checks without data source failures'
+    - 'Receive NPS score >7 from beta users'
+    - 'Generate first paying customer within beta period'
+    - 'Complete MVP within $10,000 budget'
+    - 'Launch within 8-week timeline'
+
+  resource_allocation:
+    full_stack_developer:
+      hours_per_week: 40
+      total_hours: 320
+      key_responsibilities:
+        [
+          'Infrastructure setup',
+          'Backend development',
+          'Frontend implementation',
+          'Bug fixes',
+        ]
+
+    ux_designer:
+      hours_per_week: 10
+      total_hours: 80
+      key_responsibilities:
+        ['Dashboard design', 'User flow optimization', 'Mobile responsiveness']
+
+    founder_product_manager:
+      hours_per_week: 30
+      total_hours: 240
+      key_responsibilities:
+        ['Product strategy', 'Beta user management', 'Sales', 'Support', 'Marketing']
+
+    qa_security_consultant:
+      hours_per_week: 5
+      total_hours: 40
+      key_responsibilities: ['Testing strategy', 'Security audit', 'Compliance review']
+
+  budget_breakdown:
+    development_tools: 500
+    infrastructure_6_months: 1200
+    design_contractor: 2000
+    legal_compliance: 2000
+    initial_marketing: 3000
+    contingency: 1300
+    total: 10000
+
+  milestones:
+    - date: 'Week 2'
+      achievement: 'Core infrastructure operational with database and auth'
+    - date: 'Week 4'
+      achievement: 'Data integration complete with change detection running'
+    - date: 'Week 6'
+      achievement: 'Full UI implemented with payment processing'
+    - date: 'Week 7'
+      achievement: 'Testing complete with all critical bugs resolved'
+    - date: 'Week 8'
+      achievement: 'Beta launch with 6+ active users'
+
+  post_mvp_roadmap:
+    month_2_3:
+      - 'API webhook integration for enterprise customers'
+      - 'Team accounts with role-based access control'
+      - 'Bulk HS code upload via CSV'
+      - 'Custom alert rules and thresholds'
+      - 'Quote history tracking and reconciliation'
+
+    month_4_6:
+      - 'AI-powered Federal Register interpretation'
+      - 'Competitive intelligence features'
+      - 'Flexport/Freightos API integrations'
+      - 'Landed cost optimizer'
+      - 'Mobile app development'
+      - 'International market expansion (Canada, EU)'
+
+    month_7_12:
+      - 'Enterprise features and white-label options'
+      - 'Advanced analytics and reporting'
+      - 'Customs broker partnerships'
+      - 'Predictive tariff change modeling'
+      - 'SOC 2 Type I compliance certification'
+
+  estimated_duration: '8 weeks (MVP) + 4 weeks (stabilization) = 12 weeks total'

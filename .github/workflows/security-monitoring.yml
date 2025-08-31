@@ -1,0 +1,735 @@
+name: Security Incident Monitoring
+
+on:
+  schedule:
+    # Run security scans daily at 3 AM UTC
+    - cron: '0 3 * * *'
+    # Run dependency scans every 6 hours
+    - cron: '0 */6 * * *'
+    # Run certificate checks weekly
+    - cron: '0 0 * * 0'
+  push:
+    branches: [main]
+    paths:
+      - 'package*.json'
+      - 'yarn.lock'
+      - 'Dockerfile*'
+      - '.github/workflows/**'
+      - 'src/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'package*.json'
+      - 'yarn.lock'
+      - 'Dockerfile*'
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan to run'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+          - quick
+          - comprehensive
+          - dependency-only
+          - infrastructure
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCTION_URL: 'https://tariffguard.vercel.app'
+  STAGING_URL: 'https://tariffguard-staging.vercel.app'
+
+jobs:
+  dependency-security-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'dependency-only' || github.event.inputs.scan_type == 'comprehensive' || github.event.schedule == '0 */6 * * *' || github.event_name == 'push' || github.event_name == 'pull_request'
+    timeout-minutes: 15
+
+    outputs:
+      vulnerabilities-found: ${{ steps.audit.outputs.vulnerabilities-found }}
+      critical-count: ${{ steps.audit.outputs.critical-count }}
+      high-count: ${{ steps.audit.outputs.high-count }}
+      vulnerability-summary: ${{ steps.audit.outputs.summary }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --audit=false --prefer-offline
+
+      - name: Run npm audit
+        id: audit
+        run: |
+          echo "Running npm security audit..."
+
+          # Run audit and capture output
+          if npm audit --audit-level=moderate --json > npm-audit.json 2>&1; then
+            AUDIT_EXIT=0
+          else
+            AUDIT_EXIT=$?
+          fi
+
+          # Parse audit results
+          if [ -f npm-audit.json ] && [ -s npm-audit.json ]; then
+            TOTAL_VULNS=$(cat npm-audit.json | jq '.metadata.vulnerabilities.total // 0')
+            CRITICAL_VULNS=$(cat npm-audit.json | jq '.metadata.vulnerabilities.critical // 0')
+            HIGH_VULNS=$(cat npm-audit.json | jq '.metadata.vulnerabilities.high // 0')
+            MODERATE_VULNS=$(cat npm-audit.json | jq '.metadata.vulnerabilities.moderate // 0')
+            LOW_VULNS=$(cat npm-audit.json | jq '.metadata.vulnerabilities.low // 0')
+            
+            echo "Security Audit Results:"
+            echo "  Total Vulnerabilities: $TOTAL_VULNS"
+            echo "  Critical: $CRITICAL_VULNS"
+            echo "  High: $HIGH_VULNS"
+            echo "  Moderate: $MODERATE_VULNS"
+            echo "  Low: $LOW_VULNS"
+            
+            # Set outputs
+            echo "vulnerabilities-found=true" >> $GITHUB_OUTPUT
+            echo "critical-count=$CRITICAL_VULNS" >> $GITHUB_OUTPUT
+            echo "high-count=$HIGH_VULNS" >> $GITHUB_OUTPUT
+            echo "moderate-count=$MODERATE_VULNS" >> $GITHUB_OUTPUT
+            echo "low-count=$LOW_VULNS" >> $GITHUB_OUTPUT
+            echo "total-count=$TOTAL_VULNS" >> $GITHUB_OUTPUT
+            
+            # Create summary
+            if [ $CRITICAL_VULNS -gt 0 ] || [ $HIGH_VULNS -gt 0 ]; then
+              echo "summary=Found $CRITICAL_VULNS critical and $HIGH_VULNS high severity vulnerabilities" >> $GITHUB_OUTPUT
+              echo "severity=critical" >> $GITHUB_OUTPUT
+            elif [ $MODERATE_VULNS -gt 0 ]; then
+              echo "summary=Found $MODERATE_VULNS moderate severity vulnerabilities" >> $GITHUB_OUTPUT
+              echo "severity=moderate" >> $GITHUB_OUTPUT
+            else
+              echo "summary=Found $LOW_VULNS low severity vulnerabilities" >> $GITHUB_OUTPUT
+              echo "severity=low" >> $GITHUB_OUTPUT
+            fi
+            
+            # Generate detailed report
+            npm audit --human-readable > npm-audit-report.txt
+          else
+            echo "No vulnerabilities found"
+            echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
+            echo "critical-count=0" >> $GITHUB_OUTPUT
+            echo "high-count=0" >> $GITHUB_OUTPUT
+            echo "summary=No vulnerabilities detected" >> $GITHUB_OUTPUT
+            echo "severity=none" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Snyk Security Test
+        if: env.SNYK_TOKEN != ''
+        run: |
+          echo "Running Snyk security scan..."
+          npx snyk test --json > snyk-results.json || true
+
+          if [ -f snyk-results.json ]; then
+            SNYK_ISSUES=$(cat snyk-results.json | jq '.vulnerabilities | length' 2>/dev/null || echo "0")
+            echo "Snyk found $SNYK_ISSUES issues"
+          fi
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        continue-on-error: true
+
+      - name: Check for Known Malicious Packages
+        run: |
+          echo "Checking for known malicious packages..."
+
+          # Check against known malicious package patterns
+          MALICIOUS_PATTERNS=(
+            "event-stream.*5\.3\.5"
+            "eslint-scope.*3\.7\.2"
+            "getcookies"
+            "http-fetch"
+            "https-proxy-agent.*2\.2\.3"
+            "nodemailer.*6\.4\.16"
+          )
+
+          FOUND_MALICIOUS=false
+
+          for pattern in "${MALICIOUS_PATTERNS[@]}"; do
+            if npm list | grep -E "$pattern"; then
+              echo "⚠️ Found potentially malicious package matching: $pattern"
+              FOUND_MALICIOUS=true
+            fi
+          done
+
+          if [ "$FOUND_MALICIOUS" = "false" ]; then
+            echo "✅ No known malicious packages found"
+          fi
+
+      - name: Upload Security Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-security-reports-${{ github.run_id }}
+          path: |
+            npm-audit.json
+            npm-audit-report.txt
+            snyk-results.json
+          retention-days: 30
+
+  infrastructure-security-scan:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'infrastructure' || github.event.inputs.scan_type == 'comprehensive' || contains(github.event.schedule, '0 3 * * *')
+    timeout-minutes: 20
+
+    outputs:
+      ssl-status: ${{ steps.ssl-check.outputs.status }}
+      headers-status: ${{ steps.headers-check.outputs.status }}
+      dns-status: ${{ steps.dns-check.outputs.status }}
+
+    steps:
+      - name: SSL/TLS Certificate Check
+        id: ssl-check
+        run: |
+          echo "Checking SSL/TLS certificate..."
+
+          DOMAIN="tariffguard.vercel.app"
+          SSL_ISSUES=()
+
+          # Check certificate expiry
+          CERT_EXPIRY=$(echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+          EXPIRY_TIMESTAMP=$(date -d "$CERT_EXPIRY" +%s)
+          CURRENT_TIMESTAMP=$(date +%s)
+          DAYS_UNTIL_EXPIRY=$(( (EXPIRY_TIMESTAMP - CURRENT_TIMESTAMP) / 86400 ))
+
+          echo "Certificate expires: $CERT_EXPIRY"
+          echo "Days until expiry: $DAYS_UNTIL_EXPIRY"
+
+          if [ $DAYS_UNTIL_EXPIRY -lt 30 ]; then
+            SSL_ISSUES+=("Certificate expires in $DAYS_UNTIL_EXPIRY days")
+          fi
+
+          # Check certificate chain
+          if ! echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 -verify_return_error 2>/dev/null >/dev/null; then
+            SSL_ISSUES+=("Certificate chain verification failed")
+          fi
+
+          # Check TLS version
+          TLS_VERSION=$(echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | grep "Protocol" | awk '{print $3}')
+          echo "TLS Version: $TLS_VERSION"
+
+          if [[ "$TLS_VERSION" < "TLSv1.2" ]]; then
+            SSL_ISSUES+=("Outdated TLS version: $TLS_VERSION")
+          fi
+
+          # Check cipher suite
+          CIPHER=$(echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | grep "Cipher" | awk '{print $3}')
+          echo "Cipher: $CIPHER"
+
+          # Weak ciphers check
+          WEAK_CIPHERS=("RC4" "DES" "3DES" "MD5")
+          for weak in "${WEAK_CIPHERS[@]}"; do
+            if echo "$CIPHER" | grep -qi "$weak"; then
+              SSL_ISSUES+=("Weak cipher detected: $CIPHER")
+            fi
+          done
+
+          if [ ${#SSL_ISSUES[@]} -eq 0 ]; then
+            echo "✅ SSL/TLS configuration is secure"
+            echo "status=secure" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ SSL/TLS issues found: ${SSL_ISSUES[*]}"
+            echo "status=issues" >> $GITHUB_OUTPUT
+            echo "issues=${SSL_ISSUES[*]}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Security Headers Check
+        id: headers-check
+        run: |
+          echo "Checking security headers..."
+
+          URL="$PRODUCTION_URL"
+          HEADERS_RESPONSE=$(curl -I -s "$URL")
+          MISSING_HEADERS=()
+          WEAK_HEADERS=()
+
+          # Required security headers
+          REQUIRED_HEADERS=(
+            "X-Frame-Options:DENY|SAMEORIGIN"
+            "X-Content-Type-Options:nosniff"
+            "X-XSS-Protection:1"
+            "Referrer-Policy"
+            "Content-Security-Policy|X-Content-Security-Policy"
+            "Strict-Transport-Security"
+          )
+
+          for header_check in "${REQUIRED_HEADERS[@]}"; do
+            HEADER=$(echo "$header_check" | cut -d: -f1)
+            EXPECTED=$(echo "$header_check" | cut -d: -f2 2>/dev/null)
+            
+            if echo "$HEADERS_RESPONSE" | grep -qi "^$HEADER:"; then
+              HEADER_VALUE=$(echo "$HEADERS_RESPONSE" | grep -i "^$HEADER:" | head -1 | cut -d: -f2- | tr -d '\r\n' | xargs)
+              echo "✅ $HEADER: $HEADER_VALUE"
+              
+              # Validate header values
+              if [ -n "$EXPECTED" ] && ! echo "$HEADER_VALUE" | grep -qiE "$EXPECTED"; then
+                WEAK_HEADERS+=("$HEADER has weak value: $HEADER_VALUE")
+              fi
+            else
+              echo "❌ Missing header: $HEADER"
+              MISSING_HEADERS+=("$HEADER")
+            fi
+          done
+
+          # Check for information disclosure headers
+          DISCLOSURE_HEADERS=("Server" "X-Powered-By" "X-AspNet-Version" "X-AspNetMvc-Version")
+          for header in "${DISCLOSURE_HEADERS[@]}"; do
+            if echo "$HEADERS_RESPONSE" | grep -qi "^$header:"; then
+              HEADER_VALUE=$(echo "$HEADERS_RESPONSE" | grep -i "^$header:" | cut -d: -f2- | xargs)
+              echo "⚠️ Information disclosure header: $header: $HEADER_VALUE"
+              WEAK_HEADERS+=("Information disclosure: $header")
+            fi
+          done
+
+          # Calculate security score
+          TOTAL_ISSUES=$((${#MISSING_HEADERS[@]} + ${#WEAK_HEADERS[@]}))
+
+          if [ $TOTAL_ISSUES -eq 0 ]; then
+            echo "✅ All security headers properly configured"
+            echo "status=secure" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Security header issues found"
+            echo "status=issues" >> $GITHUB_OUTPUT
+            echo "missing-headers=${MISSING_HEADERS[*]}" >> $GITHUB_OUTPUT
+            echo "weak-headers=${WEAK_HEADERS[*]}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: DNS Security Check
+        id: dns-check
+        run: |
+          echo "Checking DNS security configuration..."
+
+          DOMAIN="tariffguard.vercel.app"
+          DNS_ISSUES=()
+
+          # Check for SPF record
+          if dig TXT $DOMAIN | grep -q "v=spf1"; then
+            echo "✅ SPF record found"
+          else
+            DNS_ISSUES+=("Missing SPF record")
+          fi
+
+          # Check for DMARC record
+          if dig TXT _dmarc.$DOMAIN | grep -q "v=DMARC1"; then
+            echo "✅ DMARC record found"
+          else
+            DNS_ISSUES+=("Missing DMARC record")
+          fi
+
+          # Check for DKIM record (common selectors)
+          DKIM_FOUND=false
+          for selector in "default" "google" "k1" "selector1" "selector2"; do
+            if dig TXT ${selector}._domainkey.$DOMAIN | grep -q "v=DKIM1"; then
+              echo "✅ DKIM record found (selector: $selector)"
+              DKIM_FOUND=true
+              break
+            fi
+          done
+
+          if [ "$DKIM_FOUND" = "false" ]; then
+            DNS_ISSUES+=("No DKIM records found")
+          fi
+
+          # Check for CAA record
+          if dig CAA $DOMAIN | grep -q "issue"; then
+            echo "✅ CAA record found"
+          else
+            DNS_ISSUES+=("Missing CAA record")
+          fi
+
+          if [ ${#DNS_ISSUES[@]} -eq 0 ]; then
+            echo "✅ DNS security configuration is good"
+            echo "status=secure" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ DNS security issues: ${DNS_ISSUES[*]}"
+            echo "status=issues" >> $GITHUB_OUTPUT
+            echo "issues=${DNS_ISSUES[*]}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: OWASP ZAP Security Scan
+        run: |
+          echo "Running OWASP ZAP security scan..."
+
+          # Run ZAP baseline scan
+          docker run -v $(pwd):/zap/wrk/:rw \
+            -t owasp/zap2docker-stable zap-baseline.py \
+            -t "$PRODUCTION_URL" \
+            -g gen.conf \
+            -r zap-baseline-report.html \
+            -J zap-baseline-report.json || true
+
+          echo "ZAP scan completed"
+        continue-on-error: true
+
+      - name: Upload Infrastructure Security Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infrastructure-security-reports-${{ github.run_id }}
+          path: |
+            zap-baseline-report.html
+            zap-baseline-report.json
+          retention-days: 30
+
+  code-security-scan:
+    name: Code Security Analysis
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'comprehensive' || contains(github.event.schedule, '0 3 * * *') || github.event_name == 'push'
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          languages: javascript
+        continue-on-error: true
+
+      - name: ESLint Security Scan
+        run: |
+          echo "Running ESLint security rules..."
+
+          npm install -g eslint eslint-plugin-security
+
+          # Create temporary eslint config for security
+          cat > .eslintrc.security.js << 'EOF'
+          module.exports = {
+            plugins: ['security'],
+            extends: ['plugin:security/recommended'],
+            rules: {
+              'security/detect-unsafe-regex': 'error',
+              'security/detect-buffer-noassert': 'error',
+              'security/detect-child-process': 'error',
+              'security/detect-disable-mustache-escape': 'error',
+              'security/detect-eval-with-expression': 'error',
+              'security/detect-no-csrf-before-method-override': 'error',
+              'security/detect-non-literal-fs-filename': 'error',
+              'security/detect-non-literal-regexp': 'error',
+              'security/detect-non-literal-require': 'error',
+              'security/detect-object-injection': 'error',
+              'security/detect-possible-timing-attacks': 'error',
+              'security/detect-pseudoRandomBytes': 'error'
+            }
+          };
+          EOF
+
+          eslint src/ --config .eslintrc.security.js --format json > eslint-security.json || true
+
+          SECURITY_ISSUES=$(cat eslint-security.json | jq '. | length')
+          echo "ESLint security scan found $SECURITY_ISSUES issues"
+
+      - name: Secrets Detection
+        run: |
+          echo "Scanning for exposed secrets..."
+
+          # Check for common secret patterns
+          SECRET_PATTERNS=(
+            "(?i)(password|passwd|pwd)\s*[=:]\s*[\"'][^\"']{8,}[\"']"
+            "(?i)(api[_-]?key|apikey)\s*[=:]\s*[\"'][^\"']{16,}[\"']"
+            "(?i)(secret[_-]?key|secretkey)\s*[=:]\s*[\"'][^\"']{16,}[\"']"
+            "(?i)(access[_-]?token|accesstoken)\s*[=:]\s*[\"'][^\"']{16,}[\"']"
+            "(?i)(private[_-]?key|privatekey)\s*[=:]\s*[\"'].*[\"']"
+            "postgres://[^\\s]+"
+            "mysql://[^\\s]+"
+            "mongodb://[^\\s]+"
+            "redis://[^\\s]+"
+          )
+
+          SECRETS_FOUND=()
+
+          for pattern in "${SECRET_PATTERNS[@]}"; do
+            if grep -r -E "$pattern" src/ --exclude-dir=node_modules 2>/dev/null; then
+              SECRETS_FOUND+=("Pattern matched: $pattern")
+            fi
+          done
+
+          # Check for hardcoded URLs and endpoints
+          if grep -r -E "https?://[^/]+/(api|admin|test|dev)" src/ --exclude-dir=node_modules 2>/dev/null; then
+            SECRETS_FOUND+=("Hardcoded URLs found")
+          fi
+
+          if [ ${#SECRETS_FOUND[@]} -gt 0 ]; then
+            echo "⚠️ Potential secrets found: ${SECRETS_FOUND[*]}"
+            echo "secrets-found=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ No secrets detected"
+            echo "secrets-found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Code Security Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-security-reports-${{ github.run_id }}
+          path: |
+            eslint-security.json
+          retention-days: 30
+
+  security-notification:
+    name: Security Incident Notifications
+    runs-on: ubuntu-latest
+    needs: [dependency-security-scan, infrastructure-security-scan, code-security-scan]
+    if: always()
+
+    steps:
+      - name: Determine Security Status
+        id: security-status
+        run: |
+          echo "Determining overall security status..."
+
+          CRITICAL_ISSUES=0
+          HIGH_ISSUES=0
+          ISSUES=()
+
+          # Check dependency scan results
+          if [[ "${{ needs.dependency-security-scan.outputs.critical-count }}" -gt 0 ]]; then
+            CRITICAL_ISSUES=$((CRITICAL_ISSUES + ${{ needs.dependency-security-scan.outputs.critical-count }}))
+            ISSUES+=("🚨 ${{ needs.dependency-security-scan.outputs.critical-count }} critical dependency vulnerabilities")
+          fi
+
+          if [[ "${{ needs.dependency-security-scan.outputs.high-count }}" -gt 0 ]]; then
+            HIGH_ISSUES=$((HIGH_ISSUES + ${{ needs.dependency-security-scan.outputs.high-count }}))
+            ISSUES+=("⚠️ ${{ needs.dependency-security-scan.outputs.high-count }} high severity dependency vulnerabilities")
+          fi
+
+          # Check infrastructure scan results
+          if [[ "${{ needs.infrastructure-security-scan.outputs.ssl-status }}" == "issues" ]]; then
+            HIGH_ISSUES=$((HIGH_ISSUES + 1))
+            ISSUES+=("⚠️ SSL/TLS configuration issues detected")
+          fi
+
+          if [[ "${{ needs.infrastructure-security-scan.outputs.headers-status }}" == "issues" ]]; then
+            HIGH_ISSUES=$((HIGH_ISSUES + 1))
+            ISSUES+=("⚠️ Security headers configuration issues")
+          fi
+
+          # Determine alert level
+          if [ $CRITICAL_ISSUES -gt 0 ]; then
+            ALERT_LEVEL="critical"
+            COLOR="#dc3545"
+          elif [ $HIGH_ISSUES -gt 0 ]; then
+            ALERT_LEVEL="high"
+            COLOR="#fd7e14"
+          else
+            ALERT_LEVEL="none"
+            COLOR="#28a745"
+          fi
+
+          echo "Security Status Summary:"
+          echo "  Critical Issues: $CRITICAL_ISSUES"
+          echo "  High Issues: $HIGH_ISSUES"
+          echo "  Alert Level: $ALERT_LEVEL"
+
+          echo "alert-level=$ALERT_LEVEL" >> $GITHUB_OUTPUT
+          echo "critical-count=$CRITICAL_ISSUES" >> $GITHUB_OUTPUT
+          echo "high-count=$HIGH_ISSUES" >> $GITHUB_OUTPUT
+          echo "color=$COLOR" >> $GITHUB_OUTPUT
+          echo "issues=${ISSUES[*]}" >> $GITHUB_OUTPUT
+
+      - name: Send Critical Security Alert
+        if: steps.security-status.outputs.alert-level == 'critical' && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "text": "🚨 CRITICAL SECURITY ALERT",
+              "attachments": [
+                {
+                  "color": "#dc3545",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🚨 Critical Security Alert"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Application:* ${{ github.repository }}\n*Environment:* Production\n*Time:* <!date^${{ github.run_started_at }}^{date_pretty} at {time}|${{ github.run_started_at }}>\n*Commit:* <${{ github.event.head_commit.url }}|${{ github.sha }}>"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Critical Security Issues:*\n${{ steps.security-status.outputs.issues }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Severity Breakdown:*\n• Critical: ${{ steps.security-status.outputs.critical-count }}\n• High: ${{ steps.security-status.outputs.high-count }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "⚡ *IMMEDIATE ACTION REQUIRED*\nThese critical security issues pose an immediate risk to the application and must be addressed urgently."
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Security Report"
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        },
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "Security Dashboard"
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/security"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create Critical Security Issue
+        if: steps.security-status.outputs.alert-level == 'critical'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 CRITICAL: Security Vulnerabilities Detected - ${context.sha.substring(0, 7)}`;
+            const body = `
+            ## 🚨 Critical Security Alert
+
+            **IMMEDIATE ACTION REQUIRED**
+
+            Critical security vulnerabilities have been detected that require immediate attention.
+
+            ### Security Issues Summary
+            - **Critical Issues:** ${{ steps.security-status.outputs.critical-count }}
+            - **High Severity Issues:** ${{ steps.security-status.outputs.high-count }}
+            - **Detection Time:** ${new Date().toISOString()}
+            - **Affected Commit:** ${context.sha}
+
+            ### Issues Detected
+            ${{ steps.security-status.outputs.issues }}
+
+            ### Immediate Actions Required
+            - [ ] **URGENT:** Review and patch critical vulnerabilities
+            - [ ] Audit all dependencies for known security issues
+            - [ ] Review recent code changes for security implications
+            - [ ] Check for exposed secrets or credentials
+            - [ ] Verify infrastructure security configuration
+            - [ ] Update security headers and SSL/TLS settings
+
+            ### Security Workflow Details
+            - **Scan Timestamp:** ${new Date().toISOString()}
+            - **Workflow Run:** [View Details](${context.server_url}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - **Production URL:** ${{ env.PRODUCTION_URL }}
+
+            ### Risk Assessment
+            ⚠️ **HIGH RISK**: Critical vulnerabilities pose immediate security risks including:
+            - Data breaches
+            - Unauthorized access
+            - Code injection attacks
+            - Service disruption
+
+            ### Next Steps
+            1. **Immediately** assess the scope of critical vulnerabilities
+            2. Implement emergency patches where possible
+            3. Consider temporary mitigations if patches aren't immediately available
+            4. Notify security team and stakeholders
+            5. Document remediation steps
+            6. Re-run security scans after fixes
+
+            ### Security Resources
+            - [OWASP Top 10](https://owasp.org/www-project-top-ten/)
+            - [NPM Security Best Practices](https://docs.npmjs.com/security)
+            - [Vercel Security Guide](https://vercel.com/docs/security)
+
+            ---
+            ⚡ **This is a critical security alert requiring immediate attention**
+
+            *Auto-generated by Security Monitoring Workflow*
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'critical', 'urgent', 'incident']
+            });
+
+      - name: Generate Security Report
+        if: always()
+        run: |
+          cat > security-report.md << EOF
+          # Security Monitoring Report
+
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit:** ${{ github.sha }}
+          **Alert Level:** ${{ steps.security-status.outputs.alert-level }}
+
+          ## Summary
+          - Critical Issues: ${{ steps.security-status.outputs.critical-count }}
+          - High Issues: ${{ steps.security-status.outputs.high-count }}
+
+          ## Dependency Security
+          - Vulnerabilities Found: ${{ needs.dependency-security-scan.outputs.vulnerabilities-found }}
+          - Critical Vulnerabilities: ${{ needs.dependency-security-scan.outputs.critical-count }}
+          - High Vulnerabilities: ${{ needs.dependency-security-scan.outputs.high-count }}
+
+          ## Infrastructure Security
+          - SSL Status: ${{ needs.infrastructure-security-scan.outputs.ssl-status }}
+          - Headers Status: ${{ needs.infrastructure-security-scan.outputs.headers-status }}
+          - DNS Status: ${{ needs.infrastructure-security-scan.outputs.dns-status }}
+
+          ## Issues Detected
+          ${{ steps.security-status.outputs.issues }}
+
+          ## Recommendations
+          ${{ steps.security-status.outputs.alert-level == 'critical' && '🚨 URGENT: Address critical vulnerabilities immediately' || steps.security-status.outputs.alert-level == 'high' && '⚠️ HIGH: Schedule security fixes within 24 hours' || '✅ No critical issues detected' }}
+
+          ---
+          *Generated by Security Monitoring Workflow*
+          EOF
+
+      - name: Upload Security Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-monitoring-report-${{ github.run_id }}
+          path: security-report.md
+          retention-days: 90

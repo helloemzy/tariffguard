@@ -1,0 +1,27 @@
+{
+  "projects": [
+    {
+      "path": "./tsconfig.json",
+      "name": "TariffGuard Main"
+    }
+  ],
+  "coverageThreshold": 80,
+  "ignoreCatch": false,
+  "ignoreFiles": [
+    "**/*.d.ts",
+    "**/*.test.{ts,tsx}",
+    "**/*.spec.{ts,tsx}",
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/build/**",
+    "**/dist/**"
+  ],
+  "reportOptions": {
+    "threshold": 80,
+    "outputDir": "./quality-reports/type-coverage",
+    "html": true,
+    "lcov": true,
+    "detail": true
+  },
+  "cache": true
+}

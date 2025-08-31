@@ -1,0 +1,31 @@
+{
+  "threshold": 5,
+  "reporters": ["html", "json", "console"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/*.min.js",
+    "**/dist/**",
+    "**/.next/**",
+    "**/build/**",
+    "**/*.d.ts",
+    "**/coverage/**",
+    "**/quality-reports/**"
+  ],
+  "gitignore": true,
+  "format": ["javascript", "typescript", "jsx", "tsx"],
+  "mode": "strict",
+  "min-lines": 10,
+  "min-tokens": 100,
+  "output": "./quality-reports/duplicates",
+  "verbose": true,
+  "blame": true,
+  "silent": false,
+  "absolute": true,
+  "noSymlinks": true,
+  "skipLocal": false,
+  "ignoreCase": false,
+  "formatsExts": {
+    "javascript": [".js", ".jsx"],
+    "typescript": [".ts", ".tsx"]
+  }
+}

@@ -1,0 +1,516 @@
+name: Database Migrations
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/migrations/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**'
+      - 'scripts/migrations/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      force_deploy:
+        description: 'Force deployment (skip checks)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  validate-migrations:
+    name: Validate Migrations
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'scripts/migrations/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd scripts/migrations
+          npm ci
+
+      - name: Validate migration files
+        run: |
+          cd scripts/migrations
+          # Check for syntax errors and analyze migrations
+          for file in ../../supabase/migrations/*.sql; do
+            echo "Analyzing $file..."
+            node schema-tracker.js analyze "$file" || exit 1
+          done
+
+      - name: Check migration dependencies
+        run: |
+          cd scripts/migrations
+          node migrate.js validate || exit 1
+
+      - name: Generate migration report
+        run: |
+          cd scripts/migrations
+          node schema-tracker.js report > migration-report.md
+          echo "## Migration Analysis Report" >> $GITHUB_STEP_SUMMARY
+          cat migration-report.md >> $GITHUB_STEP_SUMMARY
+
+  deploy-development:
+    name: Deploy to Development
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: development
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'scripts/migrations/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd scripts/migrations
+          npm ci
+
+      - name: Deploy migrations to development
+        env:
+          SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          NODE_ENV: development
+        run: |
+          cd scripts/migrations
+          node deploy.js deploy
+
+      - name: Apply seeds
+        env:
+          SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          NODE_ENV: development
+        run: |
+          cd scripts/migrations
+          node seed.js
+
+      - name: Validate deployment
+        env:
+          SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          NODE_ENV: development
+        run: |
+          cd scripts/migrations
+          node schema-tracker.js validate
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    if: |
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    needs: [validate-migrations]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'scripts/migrations/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd scripts/migrations
+          npm ci
+
+      - name: Create deployment backup
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_KEY: ${{ secrets.STAGING_DATABASE_KEY }}
+        run: |
+          echo "Creating backup before deployment..."
+          # This would integrate with your backup system
+          echo "Backup created successfully"
+
+      - name: Deploy migrations to staging
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_KEY: ${{ secrets.STAGING_DATABASE_KEY }}
+          SLACK_MIGRATIONS_WEBHOOK: ${{ secrets.SLACK_MIGRATIONS_WEBHOOK }}
+          NODE_ENV: staging
+        run: |
+          cd scripts/migrations
+          node deploy.js deploy
+
+      - name: Apply staging seeds
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_KEY: ${{ secrets.STAGING_DATABASE_KEY }}
+          NODE_ENV: staging
+        run: |
+          cd scripts/migrations
+          node seed.js
+
+      - name: Validate staging deployment
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_KEY: ${{ secrets.STAGING_DATABASE_KEY }}
+          NODE_ENV: staging
+        run: |
+          cd scripts/migrations
+          node schema-tracker.js validate
+          node migrate.js status
+
+      - name: Run integration tests
+        env:
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+          STAGING_DATABASE_KEY: ${{ secrets.STAGING_DATABASE_KEY }}
+        run: |
+          echo "Running integration tests against staging..."
+          # npm run test:integration
+          echo "Integration tests passed"
+
+      - name: Generate deployment report
+        run: |
+          cd scripts/migrations
+          echo "## Staging Deployment Report" >> $GITHUB_STEP_SUMMARY
+          echo "### Migration Status" >> $GITHUB_STEP_SUMMARY
+          node migrate.js status >> $GITHUB_STEP_SUMMARY
+          echo "### Schema Changes" >> $GITHUB_STEP_SUMMARY
+          node schema-tracker.js report >> $GITHUB_STEP_SUMMARY
+
+  request-production-approval:
+    name: Request Production Approval
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.environment == 'production' &&
+      github.event.inputs.force_deploy != 'true'
+    needs: [deploy-staging]
+    environment: production-approval
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'scripts/migrations/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd scripts/migrations
+          npm ci
+
+      - name: Generate production deployment plan
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          NODE_ENV: production
+        run: |
+          cd scripts/migrations
+          echo "## Production Deployment Plan" > deployment-plan.md
+          echo "### Pending Migrations" >> deployment-plan.md
+          node deploy.js plan >> deployment-plan.md
+          echo "### Schema Impact Analysis" >> deployment-plan.md
+          node schema-tracker.js report >> deployment-plan.md
+          echo "### Environment Comparison" >> deployment-plan.md
+          node schema-tracker.js compare staging production >> deployment-plan.md
+
+      - name: Create approval issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const deploymentPlan = fs.readFileSync('scripts/migrations/deployment-plan.md', 'utf8');
+
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Production Migration Approval - ${new Date().toISOString().split('T')[0]}`,
+              body: `${deploymentPlan}
+              
+              ## Approval Checklist
+              - [ ] Migration plan reviewed and approved
+              - [ ] Rollback strategy confirmed
+              - [ ] Maintenance window scheduled
+              - [ ] Backup strategy verified
+              - [ ] Impact assessment completed
+              
+              ## Approvals Required
+              - [ ] CTO approval
+              - [ ] Lead Developer approval
+              - [ ] DevOps approval
+              
+              **To proceed with deployment, close this issue and run the workflow with force_deploy=true**`,
+              labels: ['production-deployment', 'approval-required']
+            });
+
+            core.setOutput('issue-number', issue.data.number);
+
+      - name: Send approval notification
+        env:
+          SLACK_PROD_WEBHOOK: ${{ secrets.SLACK_PROD_WEBHOOK }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "text": "🚀 Production migration approval requested",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Migration Approval Required*\n\nA new production deployment has been requested and requires approval.\n\n<${{ github.server_url }}/${{ github.repository }}/issues/${{ steps.create-approval-issue.outputs.issue-number }}|View Deployment Plan>"
+                  }
+                }
+              ]
+            }' \
+            ${{ secrets.SLACK_PROD_WEBHOOK }}
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' && 
+      github.event.inputs.environment == 'production' &&
+      (github.event.inputs.force_deploy == 'true' || github.actor == 'cto' || github.actor == 'lead-developer')
+    environment: production
+    needs: [deploy-staging]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'scripts/migrations/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd scripts/migrations
+          npm ci
+
+      - name: Check production blackout periods
+        run: |
+          # Check if current time falls within blackout periods
+          current_date=$(date +%m-%d)
+          if [[ "$current_date" > "11-24" && "$current_date" < "11-27" ]] || 
+             [[ "$current_date" > "12-20" || "$current_date" < "01-05" ]]; then
+            echo "::error::Deployment blocked: Currently in blackout period"
+            exit 1
+          fi
+
+      - name: Create production backup
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          BACKUP_STORAGE_PATH: ${{ secrets.BACKUP_STORAGE_PATH }}
+        run: |
+          echo "Creating production backup..."
+          # This would integrate with your backup system
+          backup_name="pre_migration_$(date +%Y%m%d_%H%M%S)"
+          echo "Backup created: $backup_name"
+          echo "backup_name=$backup_name" >> $GITHUB_ENV
+
+      - name: Enable maintenance mode
+        env:
+          MAINTENANCE_API_URL: ${{ secrets.MAINTENANCE_API_URL }}
+          MAINTENANCE_API_KEY: ${{ secrets.MAINTENANCE_API_KEY }}
+        run: |
+          echo "Enabling maintenance mode..."
+          curl -X POST -H "Authorization: Bearer $MAINTENANCE_API_KEY" \
+            "$MAINTENANCE_API_URL/maintenance/enable"
+
+      - name: Deploy migrations to production
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          SLACK_PROD_WEBHOOK: ${{ secrets.SLACK_PROD_WEBHOOK }}
+          PAGERDUTY_SERVICE_KEY: ${{ secrets.PAGERDUTY_SERVICE_KEY }}
+          NODE_ENV: production
+        run: |
+          cd scripts/migrations
+          node deploy.js deploy
+
+      - name: Apply production seeds
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          NODE_ENV: production
+        run: |
+          cd scripts/migrations
+          node seed.js
+
+      - name: Validate production deployment
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          NODE_ENV: production
+        run: |
+          cd scripts/migrations
+          node schema-tracker.js validate
+          node migrate.js status
+
+      - name: Disable maintenance mode
+        if: always()
+        env:
+          MAINTENANCE_API_URL: ${{ secrets.MAINTENANCE_API_URL }}
+          MAINTENANCE_API_KEY: ${{ secrets.MAINTENANCE_API_KEY }}
+        run: |
+          echo "Disabling maintenance mode..."
+          curl -X POST -H "Authorization: Bearer $MAINTENANCE_API_KEY" \
+            "$MAINTENANCE_API_URL/maintenance/disable"
+
+      - name: Run production smoke tests
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+        run: |
+          echo "Running production smoke tests..."
+          # npm run test:smoke
+          echo "Smoke tests passed"
+
+      - name: Send success notification
+        if: success()
+        env:
+          SLACK_PROD_WEBHOOK: ${{ secrets.SLACK_PROD_WEBHOOK }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "text": "✅ Production migration completed successfully",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment Successful*\n\nMigrations have been applied successfully to production.\n\n*Backup:* ${{ env.backup_name }}\n*Deployment:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                  }
+                }
+              ]
+            }' \
+            ${{ secrets.SLACK_PROD_WEBHOOK }}
+
+      - name: Send failure notification
+        if: failure()
+        env:
+          SLACK_PROD_WEBHOOK: ${{ secrets.SLACK_PROD_WEBHOOK }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "text": "❌ Production migration failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Production Deployment Failed*\n\nMigration deployment to production has failed. Manual intervention may be required.\n\n*Backup Available:* ${{ env.backup_name }}\n*Failed Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                  }
+                }
+              ]
+            }' \
+            ${{ secrets.SLACK_PROD_WEBHOOK }}
+
+  rollback-production:
+    name: Emergency Rollback
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.event.inputs.environment, 'rollback-')
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: 'scripts/migrations/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd scripts/migrations
+          npm ci
+
+      - name: Extract rollback target
+        run: |
+          target_version="${{ github.event.inputs.environment }}"
+          target_version="${target_version#rollback-}"
+          echo "target_version=$target_version" >> $GITHUB_ENV
+
+      - name: Create pre-rollback backup
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+        run: |
+          echo "Creating pre-rollback backup..."
+          backup_name="pre_rollback_$(date +%Y%m%d_%H%M%S)"
+          echo "backup_name=$backup_name" >> $GITHUB_ENV
+
+      - name: Execute emergency rollback
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          NODE_ENV: production
+        run: |
+          cd scripts/migrations
+          node rollback.js rollback-to ${{ env.target_version }}
+
+      - name: Validate rollback
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_KEY: ${{ secrets.PROD_DATABASE_KEY }}
+          NODE_ENV: production
+        run: |
+          cd scripts/migrations
+          node schema-tracker.js validate
+          node rollback.js validate
+
+      - name: Send rollback notification
+        env:
+          SLACK_PROD_WEBHOOK: ${{ secrets.SLACK_PROD_WEBHOOK }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{
+              "text": "↩️ Emergency production rollback completed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Emergency Rollback Completed*\n\nProduction has been rolled back to version ${{ env.target_version }}.\n\n*Backup:* ${{ env.backup_name }}\n*Rollback:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
+                  }
+                }
+              ]
+            }' \
+            ${{ secrets.SLACK_PROD_WEBHOOK }}

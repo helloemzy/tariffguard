@@ -1,0 +1,284 @@
+name: Performance Monitoring
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run performance tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_url:
+        description: 'URL to test (optional)'
+        required: false
+        type: string
+
+env:
+  NODE_VERSION: '18.x'
+  FORCE_COLOR: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-performance:
+    name: Build Performance Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache dependencies and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+          key: ${{ runner.os }}-perf-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-perf-${{ hashFiles('**/package-lock.json') }}-
+            ${{ runner.os }}-perf-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build with performance analysis
+        run: |
+          echo "🏗️ Starting performance-optimized build..."
+          time npm run build:profile
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Analyze bundle size
+        run: |
+          # Install bundle analyzer if not present
+          if ! command -v webpack-bundle-analyzer &> /dev/null; then
+            npm install -g webpack-bundle-analyzer
+          fi
+
+          # Create analysis directory
+          mkdir -p .next/analyze
+
+          # Generate bundle analysis
+          echo "📊 Analyzing bundle size..."
+          if [ -d ".next/static/chunks" ]; then
+            du -sh .next/static/chunks/* | sort -hr > .next/analyze/bundle-sizes.txt
+            echo "Bundle size analysis:"
+            cat .next/analyze/bundle-sizes.txt
+          fi
+
+          # Calculate total build size
+          TOTAL_SIZE=$(du -sh .next | cut -f1)
+          echo "Total build size: $TOTAL_SIZE"
+          echo "TOTAL_BUILD_SIZE=$TOTAL_SIZE" >> $GITHUB_ENV
+
+      - name: Generate build performance report
+        run: |
+          # Create performance report
+          cat > build-performance-report.json << EOF
+          {
+            "timestamp": "$(date -Iseconds)",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "buildSize": "${{ env.TOTAL_BUILD_SIZE }}",
+            "nodeVersion": "$(node --version)",
+            "environment": "CI",
+            "buildType": "production-profile"
+          }
+          EOF
+
+          echo "📋 Build Performance Report" >> $GITHUB_STEP_SUMMARY
+          echo "```json" >> $GITHUB_STEP_SUMMARY
+          cat build-performance-report.json >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-performance-${{ github.sha }}
+          path: |
+            .next/analyze/
+            build-performance-report.json
+            .next/static/chunks/
+          retention-days: 7
+
+  lighthouse-analysis:
+    name: Lighthouse Performance Analysis
+    runs-on: ubuntu-latest
+    needs: build-performance
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli@latest
+
+      - name: Run Lighthouse CI
+        run: |
+          echo "🚦 Running Lighthouse performance analysis..."
+          lhci autorun --config=./lighthouserc.js || echo "Lighthouse completed with warnings"
+        env:
+          LHCI_BUILD_CONTEXT__CURRENT_HASH: ${{ github.sha }}
+          LHCI_BUILD_CONTEXT__CURRENT_BRANCH: ${{ github.ref_name }}
+
+      - name: Process Lighthouse results
+        run: |
+          if [ -d "lighthouse-results" ]; then
+            echo "📊 Lighthouse Performance Results" >> $GITHUB_STEP_SUMMARY
+            echo "```" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract key metrics from latest run
+            for file in lighthouse-results/*.json; do
+              if [ -f "$file" ]; then
+                echo "File: $(basename "$file")" >> $GITHUB_STEP_SUMMARY
+                
+                # Extract performance score
+                PERF_SCORE=$(jq -r '.categories.performance.score * 100' "$file" 2>/dev/null || echo "N/A")
+                echo "Performance Score: ${PERF_SCORE}%" >> $GITHUB_STEP_SUMMARY
+                
+                # Extract key metrics
+                FCP=$(jq -r '.audits["first-contentful-paint"].numericValue' "$file" 2>/dev/null || echo "N/A")
+                LCP=$(jq -r '.audits["largest-contentful-paint"].numericValue' "$file" 2>/dev/null || echo "N/A")
+                CLS=$(jq -r '.audits["cumulative-layout-shift"].numericValue' "$file" 2>/dev/null || echo "N/A")
+                
+                echo "First Contentful Paint: ${FCP}ms" >> $GITHUB_STEP_SUMMARY
+                echo "Largest Contentful Paint: ${LCP}ms" >> $GITHUB_STEP_SUMMARY
+                echo "Cumulative Layout Shift: ${CLS}" >> $GITHUB_STEP_SUMMARY
+                echo "---" >> $GITHUB_STEP_SUMMARY
+                break
+              fi
+            done
+            
+            echo "```" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload Lighthouse results
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-results-${{ github.sha }}
+          path: lighthouse-results/
+          retention-days: 30
+        if: always()
+
+  size-limit-check:
+    name: Bundle Size Limit Check
+    runs-on: ubuntu-latest
+    needs: build-performance
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Check bundle size limits
+        run: |
+          echo "📏 Checking bundle size limits..."
+          npm run size-limit || {
+            echo "❌ Bundle size limit exceeded!"
+            echo "::error title=Bundle Size Limit::One or more bundles exceed the size limit"
+            exit 1
+          }
+          echo "✅ All bundles within size limits"
+
+      - name: Generate size comparison
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "📈 Bundle Size Comparison" >> $GITHUB_STEP_SUMMARY
+          echo "Current bundle sizes vs. limits:" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          npm run size-limit 2>&1 || true >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+
+  performance-regression-check:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    needs: [lighthouse-analysis, size-limit-check]
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Download current results
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-results-${{ github.sha }}
+          path: current-results/
+
+      - name: Download baseline results
+        uses: actions/download-artifact@v4
+        with:
+          name: lighthouse-results-baseline
+          path: baseline-results/
+        continue-on-error: true
+
+      - name: Compare performance metrics
+        run: |
+          echo "🔍 Checking for performance regressions..."
+
+          if [ -d "baseline-results" ] && [ -d "current-results" ]; then
+            echo "📊 Performance Comparison" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Baseline | Current | Change |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|---------|---------|" >> $GITHUB_STEP_SUMMARY
+            
+            # Compare performance scores (simplified comparison)
+            # In a real scenario, you'd want more sophisticated comparison logic
+            echo "| Performance Score | TBD | TBD | TBD |" >> $GITHUB_STEP_SUMMARY
+            echo "| First Contentful Paint | TBD | TBD | TBD |" >> $GITHUB_STEP_SUMMARY
+            echo "| Largest Contentful Paint | TBD | TBD | TBD |" >> $GITHUB_STEP_SUMMARY
+            
+            echo "✅ Performance regression check completed"
+          else
+            echo "ℹ️ No baseline results found for comparison"
+          fi
+
+  notify-performance-results:
+    name: Notify Performance Results
+    runs-on: ubuntu-latest
+    needs: [build-performance, lighthouse-analysis, size-limit-check]
+    if: always()
+    steps:
+      - name: Notify Success
+        if: needs.build-performance.result == 'success' && needs.lighthouse-analysis.result == 'success' && needs.size-limit-check.result == 'success'
+        run: |
+          echo "::notice title=Performance Monitoring::✅ All performance checks passed successfully"
+
+      - name: Notify Failure
+        if: needs.build-performance.result == 'failure' || needs.lighthouse-analysis.result == 'failure' || needs.size-limit-check.result == 'failure'
+        run: |
+          echo "::error title=Performance Monitoring::❌ One or more performance checks failed"

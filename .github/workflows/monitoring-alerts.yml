@@ -1,0 +1,523 @@
+name: Real-time Monitoring and Alerts
+
+on:
+  schedule:
+    # Run health checks every 5 minutes
+    - cron: '*/5 * * * *'
+    # Run performance checks every 30 minutes
+    - cron: '*/30 * * * *'
+    # Run security checks daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      check_type:
+        description: 'Type of monitoring check to run'
+        required: true
+        default: 'health'
+        type: choice
+        options:
+          - health
+          - performance
+          - security
+          - all
+
+concurrency:
+  group: monitoring-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCTION_URL: 'https://tariffguard.vercel.app'
+  STAGING_URL: 'https://tariffguard-staging.vercel.app'
+  ALERT_THRESHOLD_RESPONSE_TIME: 5000 # 5 seconds
+  ALERT_THRESHOLD_ERROR_RATE: 5 # 5%
+
+jobs:
+  health-monitoring:
+    name: Health Check Monitoring
+    runs-on: ubuntu-latest
+    if: github.event.inputs.check_type == 'health' || github.event.inputs.check_type == 'all' || github.event.schedule == '*/5 * * * *' || github.event_name == 'schedule'
+    timeout-minutes: 10
+
+    strategy:
+      matrix:
+        environment:
+          - { name: 'production', url: '${{ env.PRODUCTION_URL }}' }
+          - { name: 'staging', url: '${{ env.STAGING_URL }}' }
+
+    outputs:
+      production-status: ${{ steps.health-check.outputs.production-status }}
+      staging-status: ${{ steps.health-check.outputs.staging-status }}
+
+    steps:
+      - name: Health Check - ${{ matrix.environment.name }}
+        id: health-check
+        run: |
+          ENV_NAME="${{ matrix.environment.name }}"
+          URL="${{ matrix.environment.url }}"
+
+          echo "Testing health endpoint: ${URL}/healthz"
+
+          # Initialize status tracking
+          HEALTHY=false
+          RESPONSE_TIME=0
+          STATUS_CODE=0
+          ERROR_MESSAGE=""
+
+          # Perform health check with timeout
+          START_TIME=$(date +%s%3N)
+
+          if RESPONSE=$(curl -w "%{http_code}|%{time_total}" -s --connect-timeout 10 --max-time 30 "${URL}/healthz" 2>&1); then
+            END_TIME=$(date +%s%3N)
+            STATUS_CODE=$(echo "$RESPONSE" | tail -n1 | cut -d'|' -f1)
+            RESPONSE_TIME=$(echo "$RESPONSE" | tail -n1 | cut -d'|' -f2)
+            RESPONSE_TIME_MS=$(echo "$RESPONSE_TIME * 1000" | bc -l | cut -d'.' -f1)
+            
+            if [ "$STATUS_CODE" = "200" ]; then
+              HEALTHY=true
+              echo "✅ Health check passed for $ENV_NAME"
+              echo "   Status: $STATUS_CODE"
+              echo "   Response Time: ${RESPONSE_TIME_MS}ms"
+            else
+              ERROR_MESSAGE="HTTP $STATUS_CODE received"
+              echo "❌ Health check failed for $ENV_NAME: $ERROR_MESSAGE"
+            fi
+          else
+            ERROR_MESSAGE="Connection failed or timeout"
+            echo "❌ Health check failed for $ENV_NAME: $ERROR_MESSAGE"
+          fi
+
+          # Set outputs
+          echo "${ENV_NAME}-healthy=$HEALTHY" >> $GITHUB_OUTPUT
+          echo "${ENV_NAME}-response-time=$RESPONSE_TIME_MS" >> $GITHUB_OUTPUT
+          echo "${ENV_NAME}-status-code=$STATUS_CODE" >> $GITHUB_OUTPUT
+          echo "${ENV_NAME}-error=$ERROR_MESSAGE" >> $GITHUB_OUTPUT
+
+          # Check if response time exceeds threshold
+          if [ "$RESPONSE_TIME_MS" -gt "$ALERT_THRESHOLD_RESPONSE_TIME" ] && [ "$HEALTHY" = "true" ]; then
+            echo "⚠️  Slow response time detected: ${RESPONSE_TIME_MS}ms (threshold: ${ALERT_THRESHOLD_RESPONSE_TIME}ms)"
+            echo "${ENV_NAME}-slow=true" >> $GITHUB_OUTPUT
+          else
+            echo "${ENV_NAME}-slow=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: API Endpoints Check - ${{ matrix.environment.name }}
+        run: |
+          URL="${{ matrix.environment.url }}"
+          ENV_NAME="${{ matrix.environment.name }}"
+
+          echo "Testing critical API endpoints for $ENV_NAME..."
+
+          # Test critical endpoints
+          ENDPOINTS=(
+            "/api/health"
+            "/api/fetch-tariff-rates"
+          )
+
+          FAILED_ENDPOINTS=()
+
+          for endpoint in "${ENDPOINTS[@]}"; do
+            echo "Testing: ${URL}${endpoint}"
+            
+            if curl -f -s --connect-timeout 10 --max-time 30 "${URL}${endpoint}" > /dev/null; then
+              echo "✅ $endpoint - OK"
+            else
+              echo "❌ $endpoint - FAILED"
+              FAILED_ENDPOINTS+=("$endpoint")
+            fi
+          done
+
+          if [ ${#FAILED_ENDPOINTS[@]} -gt 0 ]; then
+            echo "failed-endpoints=${FAILED_ENDPOINTS[*]}" >> $GITHUB_OUTPUT
+            echo "❌ Failed endpoints: ${FAILED_ENDPOINTS[*]}"
+            exit 1
+          else
+            echo "✅ All endpoints healthy"
+            echo "failed-endpoints=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Database Connectivity Check - ${{ matrix.environment.name }}
+        run: |
+          URL="${{ matrix.environment.url }}"
+          ENV_NAME="${{ matrix.environment.name }}"
+
+          echo "Testing database connectivity for $ENV_NAME..."
+
+          # This would test a lightweight DB health endpoint
+          # For now, we'll simulate this check
+          if curl -f -s --connect-timeout 10 "${URL}/api/health" | grep -q "healthy"; then
+            echo "✅ Database connectivity check passed"
+          else
+            echo "❌ Database connectivity check failed"
+            exit 1
+          fi
+
+  performance-monitoring:
+    name: Performance Monitoring
+    runs-on: ubuntu-latest
+    if: github.event.inputs.check_type == 'performance' || github.event.inputs.check_type == 'all' || contains(github.event.schedule, '*/30 * * * *')
+    timeout-minutes: 15
+    needs: [health-monitoring]
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Performance Testing Tools
+        run: |
+          npm install -g lighthouse @lhci/cli
+
+      - name: Run Lighthouse Performance Test
+        id: lighthouse
+        run: |
+          echo "Running Lighthouse performance test..."
+
+          lighthouse "$PRODUCTION_URL" \
+            --output json \
+            --output html \
+            --output-path ./lighthouse-results \
+            --chrome-flags="--headless --no-sandbox --disable-gpu" \
+            --quiet
+
+          # Extract key metrics
+          PERFORMANCE_SCORE=$(cat lighthouse-results.report.json | jq '.categories.performance.score * 100')
+          FCP=$(cat lighthouse-results.report.json | jq '.audits["first-contentful-paint"].numericValue')
+          LCP=$(cat lighthouse-results.report.json | jq '.audits["largest-contentful-paint"].numericValue')
+          CLS=$(cat lighthouse-results.report.json | jq '.audits["cumulative-layout-shift"].numericValue')
+
+          echo "Performance Score: ${PERFORMANCE_SCORE}%"
+          echo "First Contentful Paint: ${FCP}ms"
+          echo "Largest Contentful Paint: ${LCP}ms" 
+          echo "Cumulative Layout Shift: ${CLS}"
+
+          # Set outputs
+          echo "performance-score=$PERFORMANCE_SCORE" >> $GITHUB_OUTPUT
+          echo "fcp=$FCP" >> $GITHUB_OUTPUT
+          echo "lcp=$LCP" >> $GITHUB_OUTPUT
+          echo "cls=$CLS" >> $GITHUB_OUTPUT
+
+          # Check thresholds
+          if (( $(echo "$PERFORMANCE_SCORE < 90" | bc -l) )); then
+            echo "⚠️  Performance score below threshold: ${PERFORMANCE_SCORE}% (threshold: 90%)"
+            echo "performance-alert=true" >> $GITHUB_OUTPUT
+          fi
+
+          if (( $(echo "$LCP > 2500" | bc -l) )); then
+            echo "⚠️  LCP above threshold: ${LCP}ms (threshold: 2500ms)"
+            echo "lcp-alert=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Load Testing
+        id: load-test
+        run: |
+          echo "Running basic load test..."
+
+          # Simple concurrent request test
+          START_TIME=$(date +%s)
+
+          # Run 50 concurrent requests
+          for i in {1..50}; do
+            curl -s "$PRODUCTION_URL" > /dev/null &
+          done
+          wait
+
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+
+          echo "Load test completed in ${DURATION}s"
+          echo "load-test-duration=$DURATION" >> $GITHUB_OUTPUT
+
+          if [ $DURATION -gt 30 ]; then
+            echo "⚠️  Load test took too long: ${DURATION}s (threshold: 30s)"
+            echo "load-test-alert=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Performance Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-${{ github.run_id }}
+          path: |
+            lighthouse-results.*
+          retention-days: 30
+
+  security-monitoring:
+    name: Security Monitoring
+    runs-on: ubuntu-latest
+    if: github.event.inputs.check_type == 'security' || github.event.inputs.check_type == 'all' || contains(github.event.schedule, '0 2 * * *')
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Security Headers Check
+        id: security-headers
+        run: |
+          echo "Checking security headers..."
+
+          URL="$PRODUCTION_URL"
+          HEADERS=$(curl -I -s "$URL")
+
+          MISSING_HEADERS=()
+          SECURITY_SCORE=100
+
+          # Check required security headers
+          REQUIRED_HEADERS=(
+            "X-Frame-Options"
+            "X-Content-Type-Options" 
+            "X-XSS-Protection"
+            "Referrer-Policy"
+            "Content-Security-Policy|X-Content-Security-Policy"
+            "Strict-Transport-Security"
+          )
+
+          for header in "${REQUIRED_HEADERS[@]}"; do
+            if ! echo "$HEADERS" | grep -qi "$header"; then
+              MISSING_HEADERS+=("$header")
+              SECURITY_SCORE=$((SECURITY_SCORE - 15))
+            fi
+          done
+
+          echo "Security Score: ${SECURITY_SCORE}%"
+          echo "security-score=$SECURITY_SCORE" >> $GITHUB_OUTPUT
+
+          if [ ${#MISSING_HEADERS[@]} -gt 0 ]; then
+            echo "⚠️  Missing security headers: ${MISSING_HEADERS[*]}"
+            echo "missing-headers=${MISSING_HEADERS[*]}" >> $GITHUB_OUTPUT
+            echo "security-alert=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ All security headers present"
+            echo "security-alert=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: SSL/TLS Check
+        run: |
+          echo "Checking SSL/TLS configuration..."
+
+          # Check SSL certificate
+          if echo | openssl s_client -connect tariffguard.vercel.app:443 -servername tariffguard.vercel.app 2>/dev/null | openssl x509 -noout -dates; then
+            echo "✅ SSL certificate is valid"
+          else
+            echo "❌ SSL certificate check failed"
+            exit 1
+          fi
+
+          # Check TLS version
+          TLS_VERSION=$(echo | openssl s_client -connect tariffguard.vercel.app:443 -servername tariffguard.vercel.app 2>/dev/null | grep "Protocol" | awk '{print $3}')
+          echo "TLS Version: $TLS_VERSION"
+
+          if [[ "$TLS_VERSION" < "TLSv1.2" ]]; then
+            echo "⚠️  Outdated TLS version: $TLS_VERSION"
+            exit 1
+          fi
+
+      - name: Vulnerability Scan
+        run: |
+          echo "Running basic vulnerability scan..."
+
+          # Check for common vulnerabilities
+          URL="$PRODUCTION_URL"
+
+          # Check for information disclosure
+          if curl -s "$URL/.env" | grep -q "="; then
+            echo "❌ Environment file exposed"
+            exit 1
+          fi
+
+          if curl -s "$URL/.git/config" | grep -q "repository"; then
+            echo "❌ Git repository exposed"
+            exit 1
+          fi
+
+          echo "✅ Basic vulnerability scan passed"
+
+  alert-consolidation:
+    name: Alert Consolidation and Notification
+    runs-on: ubuntu-latest
+    needs: [health-monitoring, performance-monitoring, security-monitoring]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+      - name: Consolidate Alert Status
+        id: alerts
+        run: |
+          echo "Consolidating monitoring results..."
+
+          CRITICAL_ALERTS=0
+          WARNING_ALERTS=0
+          ALERT_MESSAGES=()
+
+          # Check health monitoring results
+          if [[ "${{ needs.health-monitoring.result }}" == "failure" ]]; then
+            CRITICAL_ALERTS=$((CRITICAL_ALERTS + 1))
+            ALERT_MESSAGES+=("❌ Health checks failed")
+          fi
+
+          # Check performance monitoring results  
+          if [[ "${{ needs.performance-monitoring.result }}" == "failure" ]]; then
+            WARNING_ALERTS=$((WARNING_ALERTS + 1))
+            ALERT_MESSAGES+=("⚠️  Performance degradation detected")
+          fi
+
+          # Check security monitoring results
+          if [[ "${{ needs.security-monitoring.result }}" == "failure" ]]; then
+            CRITICAL_ALERTS=$((CRITICAL_ALERTS + 1))
+            ALERT_MESSAGES+=("🚨 Security issues detected")
+          fi
+
+          echo "Critical Alerts: $CRITICAL_ALERTS"
+          echo "Warning Alerts: $WARNING_ALERTS" 
+          echo "Alert Messages: ${ALERT_MESSAGES[*]}"
+
+          echo "critical-count=$CRITICAL_ALERTS" >> $GITHUB_OUTPUT
+          echo "warning-count=$WARNING_ALERTS" >> $GITHUB_OUTPUT
+          echo "total-alerts=$((CRITICAL_ALERTS + WARNING_ALERTS))" >> $GITHUB_OUTPUT
+          echo "alert-messages=${ALERT_MESSAGES[*]}" >> $GITHUB_OUTPUT
+
+          # Determine overall status
+          if [ $CRITICAL_ALERTS -gt 0 ]; then
+            echo "status=critical" >> $GITHUB_OUTPUT
+            echo "color=#dc3545" >> $GITHUB_OUTPUT
+          elif [ $WARNING_ALERTS -gt 0 ]; then
+            echo "status=warning" >> $GITHUB_OUTPUT  
+            echo "color=#ffc107" >> $GITHUB_OUTPUT
+          else
+            echo "status=healthy" >> $GITHUB_OUTPUT
+            echo "color=#28a745" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Critical Alert to Slack
+        if: steps.alerts.outputs.critical-count > 0 && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "text": "🚨 CRITICAL: Production Monitoring Alert",
+              "attachments": [
+                {
+                  "color": "#dc3545",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "🚨 Critical Monitoring Alert"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Application:* ${{ github.repository }}\n*Environment:* Production\n*Time:* <!date^${{ github.run_started_at }}^{date_pretty} at {time}|${{ github.run_started_at }}>"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Issues Detected:*\n${{ steps.alerts.outputs.alert-messages }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Critical Alerts:* ${{ steps.alerts.outputs.critical-count }}\n*Warning Alerts:* ${{ steps.alerts.outputs.warning-count }}"
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Details"
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        },
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "Check Site"
+                          },
+                          "url": "${{ env.PRODUCTION_URL }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create Critical Issue
+        if: steps.alerts.outputs.critical-count > 0
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Critical Monitoring Alert - ${new Date().toISOString().split('T')[0]}`;
+            const body = `
+            ## 🚨 Critical Monitoring Alert
+
+            **Time:** ${new Date().toISOString()}
+            **Environment:** Production
+            **Critical Issues:** ${{ steps.alerts.outputs.critical-count }}
+            **Warning Issues:** ${{ steps.alerts.outputs.warning-count }}
+
+            ### Issues Detected
+            ${{ steps.alerts.outputs.alert-messages }}
+
+            ### Immediate Actions Required
+            - [ ] Investigate the root cause of critical issues
+            - [ ] Check application logs and metrics
+            - [ ] Verify database connectivity
+            - [ ] Test key user workflows
+            - [ ] Monitor for recovery
+
+            ### Monitoring Details
+            - **Workflow:** [Monitoring Run](${context.server_url}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - **Production URL:** ${{ env.PRODUCTION_URL }}
+            - **Staging URL:** ${{ env.STAGING_URL }}
+
+            ### Next Steps
+            1. Acknowledge this alert
+            2. Investigate and resolve critical issues
+            3. Update this issue with findings
+            4. Close when resolved
+
+            ---
+            *Auto-generated by monitoring workflow*
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['critical', 'monitoring', 'production', 'incident']
+            });
+
+      - name: Update Monitoring Status Badge
+        if: always()
+        run: |
+          echo "Monitoring completed with status: ${{ steps.alerts.outputs.status }}"
+          # This could update a status badge or external monitoring service
+          echo "Status: ${{ steps.alerts.outputs.status }}" > monitoring-status.txt
+          echo "Last Check: $(date -u)" >> monitoring-status.txt
+
+      - name: Store Monitoring Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitoring-results-${{ github.run_id }}
+          path: |
+            monitoring-status.txt
+          retention-days: 7

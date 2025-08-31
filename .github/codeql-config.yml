@@ -1,0 +1,25 @@
+name: 'Manifest Tariff Guard CodeQL Config'
+
+disable-default-queries: false
+
+queries:
+  - name: security-extended
+    uses: security-extended
+  - name: security-and-quality
+    uses: security-and-quality
+
+paths-ignore:
+  - node_modules/**
+  - .next/**
+  - out/**
+  - dist/**
+  - build/**
+  - public/**
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/*.spec.ts'
+  - '**/*.spec.tsx'
+  - Claudable/**
+
+paths:
+  - src/**

@@ -1,0 +1,79 @@
+# Multi-stage Dockerfile for optimized Next.js builds
+# This Dockerfile implements build optimization best practices
+
+# =====================================================
+# Stage 1: Dependencies (Alpine for smaller size)
+# =====================================================
+FROM node:18-alpine AS deps
+
+WORKDIR /app
+
+# Install dependencies needed for node-gyp
+RUN apk add --no-cache libc6-compat python3 make g++
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies with optimizations
+RUN npm ci --only=production --ignore-scripts --prefer-offline \
+    && npm cache clean --force
+
+# =====================================================
+# Stage 2: Builder (Development dependencies)
+# =====================================================
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Install development dependencies for building
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts --prefer-offline
+
+# Copy source code
+COPY . .
+
+# Set production environment for build optimizations
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV BUILD_STANDALONE=true
+
+# Build the application with optimizations
+RUN npm run build
+
+# =====================================================
+# Stage 3: Runner (Minimal runtime image)
+# =====================================================
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Set production environment
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+
+# Copy public assets
+COPY --from=builder /app/public ./public
+
+# Copy build output
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Health check for container orchestration
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/api/health', (res) => { \
+        process.exit(res.statusCode === 200 ? 0 : 1) \
+    }).on('error', () => process.exit(1))" || exit 1
+
+# Start the application
+CMD ["node", "server.js"]

@@ -1,0 +1,357 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Light Mode - Professional Business Theme */
+    --background: 0 0% 100%; /* White */
+    --foreground: 220 13% 13%; /* Almost black */
+
+    /* Card Components */
+    --card: 0 0% 100%; /* White */
+    --card-foreground: 220 13% 13%;
+
+    /* Popover/Dropdown */
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 13% 13%;
+
+    /* Primary Brand Color - Trust Blue */
+    --primary: 217 91% 45%; /* Professional blue */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary - Slate */
+    --secondary: 215 16% 47%; /* Muted slate */
+    --secondary-foreground: 0 0% 100%;
+
+    /* Muted Elements */
+    --muted: 210 16% 96%; /* Light gray background */
+    --muted-foreground: 215 16% 37%; /* Darker gray text */
+
+    /* Accent - Highlighting */
+    --accent: 205 82% 94%; /* Light blue tint */
+    --accent-foreground: 217 91% 45%;
+
+    /* Success States */
+    --success: 158 64% 42%; /* Professional green */
+    --success-foreground: 0 0% 100%;
+
+    /* Warning States */
+    --warning: 38 92% 50%; /* Amber */
+    --warning-foreground: 0 0% 100%;
+
+    /* Destructive/Error States */
+    --destructive: 0 72% 51%; /* Professional red */
+    --destructive-foreground: 0 0% 100%;
+
+    /* UI Elements */
+    --border: 214 32% 91%; /* Light border */
+    --input: 214 32% 91%; /* Input border */
+    --ring: 217 91% 45%; /* Focus ring */
+
+    /* Border Radius */
+    --radius: 0.5rem;
+
+    /* Chart Colors for Data Visualization */
+    --chart-1: 217 91% 45%; /* Primary blue */
+    --chart-2: 158 64% 42%; /* Success green */
+    --chart-3: 38 92% 50%; /* Warning amber */
+    --chart-4: 275 70% 50%; /* Purple */
+    --chart-5: 195 74% 46%; /* Cyan */
+  }
+
+  .dark {
+    /* Dark Mode - Professional Dark Theme */
+    --background: 220 27% 7%; /* Almost black */
+    --foreground: 210 17% 95%; /* Off-white */
+
+    /* Card Components */
+    --card: 220 27% 11%; /* Slightly lighter than background */
+    --card-foreground: 210 17% 95%;
+
+    /* Popover/Dropdown */
+    --popover: 220 27% 11%;
+    --popover-foreground: 210 17% 95%;
+
+    /* Primary Brand Color */
+    --primary: 217 91% 60%; /* Lighter blue for dark mode */
+    --primary-foreground: 220 27% 7%;
+
+    /* Secondary */
+    --secondary: 215 16% 23%; /* Dark slate */
+    --secondary-foreground: 210 17% 95%;
+
+    /* Muted Elements */
+    --muted: 215 16% 15%; /* Dark muted background */
+    --muted-foreground: 215 16% 65%; /* Muted text */
+
+    /* Accent */
+    --accent: 217 32% 17%; /* Dark blue tint */
+    --accent-foreground: 217 91% 60%;
+
+    /* Success States */
+    --success: 158 64% 52%; /* Lighter green for dark mode */
+    --success-foreground: 220 27% 7%;
+
+    /* Warning States */
+    --warning: 38 92% 60%; /* Lighter amber for dark mode */
+    --warning-foreground: 220 27% 7%;
+
+    /* Destructive/Error States */
+    --destructive: 0 72% 61%; /* Lighter red for dark mode */
+    --destructive-foreground: 220 27% 7%;
+
+    /* UI Elements */
+    --border: 215 16% 20%; /* Subtle border */
+    --input: 215 16% 20%;
+    --ring: 217 91% 60%;
+
+    /* Chart Colors for Dark Mode */
+    --chart-1: 217 91% 60%;
+    --chart-2: 158 64% 52%;
+    --chart-3: 38 92% 60%;
+    --chart-4: 275 70% 60%;
+    --chart-5: 195 74% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      'rlig' 1,
+      'calt' 1,
+      'ss01' 1;
+  }
+
+  /* Typography Defaults */
+  h1 {
+    @apply scroll-m-20 text-4xl font-bold tracking-tight lg:text-5xl;
+  }
+
+  h2 {
+    @apply scroll-m-20 text-3xl font-semibold tracking-tight;
+  }
+
+  h3 {
+    @apply scroll-m-20 text-2xl font-semibold tracking-tight;
+  }
+
+  h4 {
+    @apply scroll-m-20 text-xl font-semibold tracking-tight;
+  }
+
+  p {
+    @apply leading-7 [&:not(:first-child)]:mt-6;
+  }
+
+  /* Link Styles */
+  a {
+    @apply transition-colors hover:text-primary;
+  }
+
+  /* Code Styles */
+  code {
+    @apply relative rounded bg-muted px-[0.3rem] py-[0.2rem] font-mono text-sm;
+  }
+}
+
+@layer components {
+  /* Button Variants */
+  .btn-primary {
+    @apply rounded-md bg-primary px-4 py-2 
+           font-medium text-primary-foreground shadow-sm 
+           transition-all duration-200 hover:bg-primary/90
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply rounded-md bg-secondary px-4 py-2
+           font-medium text-secondary-foreground shadow-sm
+           transition-all duration-200 hover:bg-secondary/80
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-outline {
+    @apply rounded-md border border-input bg-background px-4
+           py-2 font-medium transition-all
+           duration-200 hover:bg-accent hover:text-accent-foreground
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-ghost {
+    @apply rounded-md px-4
+           py-2 font-medium transition-all
+           duration-200 hover:bg-accent hover:text-accent-foreground
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-destructive {
+    @apply rounded-md bg-destructive px-4 py-2
+           font-medium text-destructive-foreground shadow-sm
+           transition-all duration-200 hover:bg-destructive/90
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* Input Styles */
+  .input-field {
+    @apply flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 
+           text-sm ring-offset-background transition-all duration-200 
+           file:border-0 file:bg-transparent file:text-sm 
+           file:font-medium placeholder:text-muted-foreground focus-visible:outline-none 
+           focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Card Styles */
+  .card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-card
+           transition-shadow duration-200 hover:shadow-card-hover;
+  }
+
+  .card-header {
+    @apply flex flex-col space-y-1.5 p-6;
+  }
+
+  .card-content {
+    @apply p-6 pt-0;
+  }
+
+  .card-footer {
+    @apply flex items-center p-6 pt-0;
+  }
+
+  /* Badge Variants */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold
+           transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2;
+  }
+
+  .badge-primary {
+    @apply bg-primary/10 text-primary hover:bg-primary/20;
+  }
+
+  .badge-success {
+    @apply bg-success/10 text-success hover:bg-success/20;
+  }
+
+  .badge-warning {
+    @apply bg-warning/10 text-warning hover:bg-warning/20;
+  }
+
+  .badge-destructive {
+    @apply bg-destructive/10 text-destructive hover:bg-destructive/20;
+  }
+
+  /* Alert Styles */
+  .alert {
+    @apply relative w-full rounded-lg border p-4;
+  }
+
+  .alert-default {
+    @apply bg-background text-foreground;
+  }
+
+  .alert-success {
+    @apply border-success/20 bg-success/5 text-success;
+  }
+
+  .alert-warning {
+    @apply border-warning/20 bg-warning/5 text-warning;
+  }
+
+  .alert-destructive {
+    @apply border-destructive/20 bg-destructive/5 text-destructive;
+  }
+
+  /* Table Styles */
+  .table {
+    @apply w-full caption-bottom text-sm;
+  }
+
+  .table-header {
+    @apply border-b bg-muted/50;
+  }
+
+  .table-row {
+    @apply border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted;
+  }
+
+  .table-cell {
+    @apply p-4 align-middle [&:has([role=checkbox])]:pr-0;
+  }
+}
+
+@layer utilities {
+  /* Custom Scrollbar Styles */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.secondary.400') transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-secondary-400;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-secondary-500;
+  }
+
+  /* Text Selection */
+  ::selection {
+    @apply bg-primary/20 text-primary;
+  }
+
+  /* Focus Visible Utilities */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+
+  /* Animation Utilities */
+  .animate-in {
+    animation-duration: 0.3s;
+    animation-fill-mode: both;
+  }
+
+  .animate-out {
+    animation-duration: 0.3s;
+    animation-fill-mode: both;
+  }
+
+  /* Loading States */
+  .skeleton {
+    @apply animate-pulse rounded bg-muted;
+  }
+
+  /* Gradient Text */
+  .gradient-text {
+    @apply bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent;
+  }
+
+  /* Glass Morphism Effect */
+  .glass {
+    @apply border border-border/50 bg-background/80 backdrop-blur-md;
+  }
+
+  /* Responsive Grid System */
+  .container {
+    @apply mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .grid-responsive {
+    @apply grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4;
+  }
+}

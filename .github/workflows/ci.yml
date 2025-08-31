@@ -1,0 +1,339 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'hotfix/**']
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18.x'
+  FORCE_COLOR: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: Setup & Cache Dependencies
+    runs-on: ubuntu-latest
+    outputs:
+      cache-key: ${{ steps.cache.outputs.cache-hit }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache dependencies
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          npm ci --prefer-offline --no-audit --progress=false --ignore-scripts
+          npm rebuild && npm run prepare --if-present
+          npm ls --depth=0
+
+  lint:
+    name: Code Quality & Fast Analysis
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore dependencies and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies (if cache miss)
+        run: |
+          if [ ! -d "node_modules" ]; then
+            npm ci --prefer-offline --no-audit
+          fi
+
+      - name: ESLint with unused imports check
+        run: |
+          npm run lint:strict
+          npm run lint:unused || echo "Unused imports check completed with warnings"
+
+      - name: Prettier format check
+        run: npm run format:check
+
+      - name: CSS linting (if applicable)
+        run: |
+          if command -v stylelint &> /dev/null; then
+            npm run lint:css
+          else
+            echo "Stylelint not configured, skipping CSS linting"
+          fi
+
+      - name: Fast quality checks
+        run: |
+          mkdir -p quality-reports
+          npm run ci:quality-fast || echo "Fast quality checks completed with warnings"
+
+  type-check:
+    name: Type Checking
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore dependencies and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies (if cache miss)
+        run: |
+          if [ ! -d "node_modules" ]; then
+            npm ci --prefer-offline --no-audit
+          fi
+
+      - name: TypeScript type checking
+        run: npm run type-check
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Security audit
+        run: |
+          npm audit --audit-level=moderate
+          echo "✅ Security audit completed"
+
+      - name: Check for known vulnerabilities
+        run: |
+          # Optional: Add additional security scanning tools
+          echo "🔍 Checking for known vulnerabilities..."
+          # Example: npm install -g snyk && snyk test
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [setup, lint, type-check]
+    strategy:
+      matrix:
+        node-version: ['18.x', '20.x']
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Restore dependencies and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies (if cache miss)
+        run: |
+          if [ ! -d "node_modules" ]; then
+            npm ci --prefer-offline --no-audit
+          fi
+
+      - name: Environment validation
+        run: |
+          if command -v npm run env:validate &> /dev/null; then
+            npm run env:validate
+          else
+            echo "Environment validation script not found, skipping"
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          NEXT_TELEMETRY_DISABLED: 1
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_APP_NAME: 'TariffGuard'
+
+      - name: Build size analysis
+        run: |
+          if [ -d ".next" ]; then
+            echo "📊 Build size analysis:"
+            du -sh .next/
+            if [ -d ".next/static" ]; then
+              echo "Static assets:"
+              du -sh .next/static/*
+            fi
+          fi
+
+      - name: Cache build artifacts and analyze bundle
+        if: matrix.node-version == '18.x'
+        uses: actions/cache@v4
+        with:
+          path: |
+            .next/cache
+            .next/standalone
+            .next/static
+          key: ${{ runner.os }}-build-${{ github.sha }}-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ github.sha }}-
+            ${{ runner.os }}-build-
+
+      - name: Upload build analysis
+        if: matrix.node-version == '18.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-analysis-${{ github.sha }}
+          path: |
+            .next/analyze/
+            build-analysis.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    needs: setup
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Restore dependencies and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.npm
+            .next/cache
+            ${{ github.workspace }}/.next/cache
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}-
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies (if cache miss)
+        run: |
+          if [ ! -d "node_modules" ]; then
+            npm ci --prefer-offline --no-audit
+          fi
+
+      - name: Run unit tests
+        run: |
+          if npm run | grep -q "test"; then
+            npm test
+          else
+            echo "No test script found, skipping tests"
+          fi
+
+  deploy-check:
+    name: Deployment Readiness Check
+    runs-on: ubuntu-latest
+    needs: [build, test, security]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    steps:
+      - name: Deployment readiness summary
+        run: |
+          echo "🚀 Deployment Readiness Check"
+          echo "✅ Code quality checks passed"
+          echo "✅ Type checking passed"
+          echo "✅ Security audit passed"
+          echo "✅ Build completed successfully"
+          echo "✅ Tests passed"
+          echo ""
+          echo "Ready for deployment! 🎉"
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [lint, type-check, build, test, security]
+    if: always()
+    steps:
+      - name: Check job results
+        run: |
+          if [ "${{ needs.lint.result }}" == "success" ] && 
+             [ "${{ needs.type-check.result }}" == "success" ] && 
+             [ "${{ needs.build.result }}" == "success" ] && 
+             [ "${{ needs.security.result }}" == "success" ]; then
+            echo "::notice title=CI Success::✅ All CI checks passed successfully"
+          else
+            echo "::error title=CI Failed::❌ One or more CI checks failed"
+            exit 1
+          fi

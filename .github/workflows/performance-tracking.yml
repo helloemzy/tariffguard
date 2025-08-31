@@ -1,0 +1,565 @@
+name: Performance Degradation Detection
+
+on:
+  schedule:
+    # Run performance checks every hour during business hours (9 AM - 6 PM UTC)
+    - cron: '0 9-18 * * 1-5'
+    # Run comprehensive performance audit daily at midnight
+    - cron: '0 0 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'next.config.js'
+      - 'tailwind.config.ts'
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of performance test to run'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+          - quick
+          - comprehensive
+          - baseline
+
+concurrency:
+  group: performance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRODUCTION_URL: 'https://tariffguard.vercel.app'
+  STAGING_URL: 'https://tariffguard-staging.vercel.app'
+
+jobs:
+  performance-baseline:
+    name: Performance Baseline Collection
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_type == 'baseline' || github.event.inputs.test_type == 'comprehensive'
+    timeout-minutes: 20
+
+    outputs:
+      baseline-performance: ${{ steps.baseline.outputs.performance-score }}
+      baseline-fcp: ${{ steps.baseline.outputs.fcp }}
+      baseline-lcp: ${{ steps.baseline.outputs.lcp }}
+      baseline-cls: ${{ steps.baseline.outputs.cls }}
+      baseline-ttfb: ${{ steps.baseline.outputs.ttfb }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Performance Tools
+        run: |
+          npm install -g lighthouse @lhci/cli puppeteer
+
+      - name: Collect Performance Baseline
+        id: baseline
+        run: |
+          echo "Collecting performance baseline..."
+
+          # Run multiple lighthouse tests for consistency
+          SCORES=()
+          FCP_VALUES=()
+          LCP_VALUES=()
+          CLS_VALUES=()
+          TTFB_VALUES=()
+
+          for i in {1..3}; do
+            echo "Running baseline test $i/3..."
+            
+            lighthouse "$PRODUCTION_URL" \
+              --output json \
+              --output-path "./baseline-$i.json" \
+              --chrome-flags="--headless --no-sandbox --disable-gpu" \
+              --quiet \
+              --throttling-method=devtools
+            
+            # Extract metrics
+            SCORE=$(cat "baseline-$i.json" | jq '.categories.performance.score * 100')
+            FCP=$(cat "baseline-$i.json" | jq '.audits["first-contentful-paint"].numericValue')
+            LCP=$(cat "baseline-$i.json" | jq '.audits["largest-contentful-paint"].numericValue') 
+            CLS=$(cat "baseline-$i.json" | jq '.audits["cumulative-layout-shift"].numericValue')
+            TTFB=$(cat "baseline-$i.json" | jq '.audits["time-to-first-byte"].numericValue')
+            
+            SCORES+=($SCORE)
+            FCP_VALUES+=($FCP)
+            LCP_VALUES+=($LCP)
+            CLS_VALUES+=($CLS)
+            TTFB_VALUES+=($TTFB)
+            
+            sleep 10  # Wait between tests
+          done
+
+          # Calculate averages
+          AVG_SCORE=$(echo "${SCORES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          AVG_FCP=$(echo "${FCP_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          AVG_LCP=$(echo "${LCP_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          AVG_CLS=$(echo "${CLS_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          AVG_TTFB=$(echo "${TTFB_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+
+          echo "Baseline Performance Metrics:"
+          echo "  Performance Score: $AVG_SCORE"
+          echo "  First Contentful Paint: $AVG_FCP ms"
+          echo "  Largest Contentful Paint: $AVG_LCP ms"
+          echo "  Cumulative Layout Shift: $AVG_CLS"
+          echo "  Time to First Byte: $AVG_TTFB ms"
+
+          # Set outputs
+          echo "performance-score=$AVG_SCORE" >> $GITHUB_OUTPUT
+          echo "fcp=$AVG_FCP" >> $GITHUB_OUTPUT
+          echo "lcp=$AVG_LCP" >> $GITHUB_OUTPUT
+          echo "cls=$AVG_CLS" >> $GITHUB_OUTPUT
+          echo "ttfb=$AVG_TTFB" >> $GITHUB_OUTPUT
+
+          # Store baseline data
+          cat > baseline-metrics.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "performance_score": $AVG_SCORE,
+            "fcp": $AVG_FCP,
+            "lcp": $AVG_LCP,
+            "cls": $AVG_CLS,
+            "ttfb": $AVG_TTFB,
+            "raw_scores": [${SCORES[*]}],
+            "raw_fcp": [${FCP_VALUES[*]}],
+            "raw_lcp": [${LCP_VALUES[*]}],
+            "raw_cls": [${CLS_VALUES[*]}],
+            "raw_ttfb": [${TTFB_VALUES[*]}]
+          }
+          EOF
+
+      - name: Upload Baseline Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline-${{ github.run_id }}
+          path: |
+            baseline-*.json
+            baseline-metrics.json
+          retention-days: 90
+
+  performance-monitoring:
+    name: Performance Monitoring and Comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    outputs:
+      performance-degraded: ${{ steps.compare.outputs.degraded }}
+      alert-level: ${{ steps.compare.outputs.alert-level }}
+      degradation-summary: ${{ steps.compare.outputs.summary }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Performance Tools
+        run: |
+          npm install -g lighthouse @lhci/cli puppeteer sitespeed.io
+
+      - name: Download Historical Baseline
+        id: download-baseline
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: performance-baseline-latest
+          path: ./historical-baseline/
+
+      - name: Run Current Performance Test
+        id: current-test
+        run: |
+          echo "Running current performance test..."
+
+          TEST_TYPE="${{ github.event.inputs.test_type || 'quick' }}"
+          ITERATIONS=1
+
+          if [[ "$TEST_TYPE" == "comprehensive" ]]; then
+            ITERATIONS=3
+          fi
+
+          SCORES=()
+          FCP_VALUES=()
+          LCP_VALUES=()
+          CLS_VALUES=()
+          TTFB_VALUES=()
+          FID_VALUES=()
+          INP_VALUES=()
+
+          for i in $(seq 1 $ITERATIONS); do
+            echo "Running performance test $i/$ITERATIONS..."
+            
+            lighthouse "$PRODUCTION_URL" \
+              --output json \
+              --output-path "./current-$i.json" \
+              --chrome-flags="--headless --no-sandbox --disable-gpu --disable-dev-shm-usage" \
+              --throttling-method=devtools \
+              --quiet
+            
+            # Extract comprehensive metrics
+            SCORE=$(cat "current-$i.json" | jq '.categories.performance.score * 100')
+            FCP=$(cat "current-$i.json" | jq '.audits["first-contentful-paint"].numericValue')
+            LCP=$(cat "current-$i.json" | jq '.audits["largest-contentful-paint"].numericValue')
+            CLS=$(cat "current-$i.json" | jq '.audits["cumulative-layout-shift"].numericValue')
+            TTFB=$(cat "current-$i.json" | jq '.audits["time-to-first-byte"].numericValue // 0')
+            
+            # Web Vitals
+            FID=$(cat "current-$i.json" | jq '.audits["max-potential-fid"].numericValue // 0')
+            
+            SCORES+=($SCORE)
+            FCP_VALUES+=($FCP)
+            LCP_VALUES+=($LCP) 
+            CLS_VALUES+=($CLS)
+            TTFB_VALUES+=($TTFB)
+            FID_VALUES+=($FID)
+            
+            if [ $ITERATIONS -gt 1 ]; then
+              sleep 15  # Wait between comprehensive tests
+            fi
+          done
+
+          # Calculate averages
+          CURRENT_SCORE=$(echo "${SCORES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          CURRENT_FCP=$(echo "${FCP_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          CURRENT_LCP=$(echo "${LCP_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          CURRENT_CLS=$(echo "${CLS_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          CURRENT_TTFB=$(echo "${TTFB_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+          CURRENT_FID=$(echo "${FID_VALUES[@]}" | awk '{sum=0; for(i=1;i<=NF;i++)sum+=$i; print sum/NF}')
+
+          echo "Current Performance Metrics:"
+          echo "  Performance Score: $CURRENT_SCORE"
+          echo "  First Contentful Paint: $CURRENT_FCP ms"
+          echo "  Largest Contentful Paint: $CURRENT_LCP ms"
+          echo "  Cumulative Layout Shift: $CURRENT_CLS"
+          echo "  Time to First Byte: $CURRENT_TTFB ms"
+          echo "  First Input Delay: $CURRENT_FID ms"
+
+          # Set outputs
+          echo "performance-score=$CURRENT_SCORE" >> $GITHUB_OUTPUT
+          echo "fcp=$CURRENT_FCP" >> $GITHUB_OUTPUT
+          echo "lcp=$CURRENT_LCP" >> $GITHUB_OUTPUT
+          echo "cls=$CURRENT_CLS" >> $GITHUB_OUTPUT
+          echo "ttfb=$CURRENT_TTFB" >> $GITHUB_OUTPUT
+          echo "fid=$CURRENT_FID" >> $GITHUB_OUTPUT
+
+      - name: Run Resource Analysis
+        run: |
+          echo "Analyzing resource performance..."
+
+          # Run sitespeed.io for detailed resource analysis
+          docker run --rm -v "$(pwd)":/sitespeed.io sitespeedio/sitespeed.io:latest \
+            --budget.configPath /dev/null \
+            --outputFolder ./sitespeed-results \
+            --budget.addMessageSlack \
+            "$PRODUCTION_URL" || true
+
+          echo "Resource analysis completed"
+
+      - name: Compare with Historical Performance
+        id: compare
+        run: |
+          echo "Comparing with historical performance..."
+
+          CURRENT_SCORE="${{ steps.current-test.outputs.performance-score }}"
+          CURRENT_FCP="${{ steps.current-test.outputs.fcp }}"
+          CURRENT_LCP="${{ steps.current-test.outputs.lcp }}"
+          CURRENT_CLS="${{ steps.current-test.outputs.cls }}"
+          CURRENT_TTFB="${{ steps.current-test.outputs.ttfb }}"
+
+          # Default thresholds if no historical data
+          BASELINE_SCORE=85
+          BASELINE_FCP=1800
+          BASELINE_LCP=2500
+          BASELINE_CLS=0.1
+          BASELINE_TTFB=600
+
+          # Use historical baseline if available
+          if [ -f "./historical-baseline/baseline-metrics.json" ]; then
+            echo "Using historical baseline data..."
+            BASELINE_SCORE=$(cat "./historical-baseline/baseline-metrics.json" | jq '.performance_score')
+            BASELINE_FCP=$(cat "./historical-baseline/baseline-metrics.json" | jq '.fcp')
+            BASELINE_LCP=$(cat "./historical-baseline/baseline-metrics.json" | jq '.lcp')
+            BASELINE_CLS=$(cat "./historical-baseline/baseline-metrics.json" | jq '.cls')
+            BASELINE_TTFB=$(cat "./historical-baseline/baseline-metrics.json" | jq '.ttfb')
+          else
+            echo "No historical baseline found, using default thresholds..."
+          fi
+
+          echo "Baseline Metrics:"
+          echo "  Performance Score: $BASELINE_SCORE"
+          echo "  FCP: $BASELINE_FCP ms"
+          echo "  LCP: $BASELINE_LCP ms"
+          echo "  CLS: $BASELINE_CLS"
+          echo "  TTFB: $BASELINE_TTFB ms"
+
+          # Calculate percentage changes
+          SCORE_CHANGE=$(echo "scale=2; ($CURRENT_SCORE - $BASELINE_SCORE) / $BASELINE_SCORE * 100" | bc -l)
+          FCP_CHANGE=$(echo "scale=2; ($CURRENT_FCP - $BASELINE_FCP) / $BASELINE_FCP * 100" | bc -l)
+          LCP_CHANGE=$(echo "scale=2; ($CURRENT_LCP - $BASELINE_LCP) / $BASELINE_LCP * 100" | bc -l)
+          CLS_CHANGE=$(echo "scale=2; ($CURRENT_CLS - $BASELINE_CLS) / $BASELINE_CLS * 100" | bc -l 2>/dev/null || echo "0")
+          TTFB_CHANGE=$(echo "scale=2; ($CURRENT_TTFB - $BASELINE_TTFB) / $BASELINE_TTFB * 100" | bc -l)
+
+          echo "Performance Changes:"
+          echo "  Score: ${SCORE_CHANGE}%"
+          echo "  FCP: ${FCP_CHANGE}%"
+          echo "  LCP: ${LCP_CHANGE}%"
+          echo "  CLS: ${CLS_CHANGE}%"
+          echo "  TTFB: ${TTFB_CHANGE}%"
+
+          # Determine degradation level
+          DEGRADED=false
+          ALERT_LEVEL="none"
+          ISSUES=()
+
+          # Critical thresholds (>20% degradation)
+          if (( $(echo "$SCORE_CHANGE < -20" | bc -l) )); then
+            DEGRADED=true
+            ALERT_LEVEL="critical"
+            ISSUES+=("Performance score decreased by ${SCORE_CHANGE}%")
+          fi
+
+          if (( $(echo "$FCP_CHANGE > 30" | bc -l) )); then
+            DEGRADED=true
+            ALERT_LEVEL="critical"
+            ISSUES+=("First Contentful Paint increased by ${FCP_CHANGE}%")
+          fi
+
+          if (( $(echo "$LCP_CHANGE > 30" | bc -l) )); then
+            DEGRADED=true
+            ALERT_LEVEL="critical" 
+            ISSUES+=("Largest Contentful Paint increased by ${LCP_CHANGE}%")
+          fi
+
+          # Warning thresholds (10-20% degradation)
+          if (( $(echo "$SCORE_CHANGE < -10" | bc -l) )) && [ "$ALERT_LEVEL" = "none" ]; then
+            DEGRADED=true
+            ALERT_LEVEL="warning"
+            ISSUES+=("Performance score decreased by ${SCORE_CHANGE}%")
+          fi
+
+          if (( $(echo "$FCP_CHANGE > 15" | bc -l) )) && [ "$ALERT_LEVEL" != "critical" ]; then
+            DEGRADED=true
+            if [ "$ALERT_LEVEL" = "none" ]; then ALERT_LEVEL="warning"; fi
+            ISSUES+=("First Contentful Paint increased by ${FCP_CHANGE}%")
+          fi
+
+          if (( $(echo "$LCP_CHANGE > 15" | bc -l) )) && [ "$ALERT_LEVEL" != "critical" ]; then
+            DEGRADED=true
+            if [ "$ALERT_LEVEL" = "none" ]; then ALERT_LEVEL="warning"; fi
+            ISSUES+=("Largest Contentful Paint increased by ${LCP_CHANGE}%")
+          fi
+
+          # Set outputs
+          echo "degraded=$DEGRADED" >> $GITHUB_OUTPUT
+          echo "alert-level=$ALERT_LEVEL" >> $GITHUB_OUTPUT
+          echo "summary=${ISSUES[*]}" >> $GITHUB_OUTPUT
+          echo "score-change=$SCORE_CHANGE" >> $GITHUB_OUTPUT
+          echo "fcp-change=$FCP_CHANGE" >> $GITHUB_OUTPUT
+          echo "lcp-change=$LCP_CHANGE" >> $GITHUB_OUTPUT
+          echo "cls-change=$CLS_CHANGE" >> $GITHUB_OUTPUT
+          echo "ttfb-change=$TTFB_CHANGE" >> $GITHUB_OUTPUT
+
+          if [ "$DEGRADED" = "true" ]; then
+            echo "🚨 Performance degradation detected!"
+            echo "Alert Level: $ALERT_LEVEL"
+            echo "Issues: ${ISSUES[*]}"
+          else
+            echo "✅ Performance within acceptable thresholds"
+          fi
+
+      - name: Generate Performance Report
+        run: |
+          cat > performance-report.md << EOF
+          # Performance Analysis Report
+
+          **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+
+          ## Current Metrics
+          - **Performance Score:** ${{ steps.current-test.outputs.performance-score }}
+          - **First Contentful Paint:** ${{ steps.current-test.outputs.fcp }}ms
+          - **Largest Contentful Paint:** ${{ steps.current-test.outputs.lcp }}ms
+          - **Cumulative Layout Shift:** ${{ steps.current-test.outputs.cls }}
+          - **Time to First Byte:** ${{ steps.current-test.outputs.ttfb }}ms
+
+          ## Performance Changes
+          - **Score Change:** ${{ steps.compare.outputs.score-change }}%
+          - **FCP Change:** ${{ steps.compare.outputs.fcp-change }}%
+          - **LCP Change:** ${{ steps.compare.outputs.lcp-change }}%
+          - **CLS Change:** ${{ steps.compare.outputs.cls-change }}%
+          - **TTFB Change:** ${{ steps.compare.outputs.ttfb-change }}%
+
+          ## Status
+          **Alert Level:** ${{ steps.compare.outputs.alert-level }}
+          **Degraded:** ${{ steps.compare.outputs.degraded }}
+
+          ${{ steps.compare.outputs.degraded == 'true' && '### Issues Detected' || '### All Checks Passed' }}
+          ${{ steps.compare.outputs.summary }}
+
+          ---
+          *Generated by Performance Monitoring Workflow*
+          EOF
+
+          cat performance-report.md
+
+      - name: Upload Performance Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-${{ github.run_id }}
+          path: |
+            current-*.json
+            performance-report.md
+            sitespeed-results/
+          retention-days: 30
+
+      - name: Store Current as Latest Baseline
+        if: steps.compare.outputs.alert-level == 'none'
+        run: |
+          # Only update baseline if performance is good
+          cat > baseline-metrics.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "performance_score": ${{ steps.current-test.outputs.performance-score }},
+            "fcp": ${{ steps.current-test.outputs.fcp }},
+            "lcp": ${{ steps.current-test.outputs.lcp }},
+            "cls": ${{ steps.current-test.outputs.cls }},
+            "ttfb": ${{ steps.current-test.outputs.ttfb }}
+          }
+          EOF
+
+      - name: Upload Updated Baseline
+        if: steps.compare.outputs.alert-level == 'none'
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-baseline-latest
+          path: baseline-metrics.json
+          retention-days: 365
+
+  notify-performance-issues:
+    name: Performance Degradation Notifications
+    runs-on: ubuntu-latest
+    needs: [performance-monitoring]
+    if: needs.performance-monitoring.outputs.performance-degraded == 'true'
+
+    steps:
+      - name: Send Slack Alert
+        if: env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: custom
+          custom_payload: |
+            {
+              "text": "${{ needs.performance-monitoring.outputs.alert-level == 'critical' && '🚨 Critical Performance Degradation' || '⚠️ Performance Degradation Warning' }}",
+              "attachments": [
+                {
+                  "color": "${{ needs.performance-monitoring.outputs.alert-level == 'critical' && '#dc3545' || '#ffc107' }}",
+                  "blocks": [
+                    {
+                      "type": "header",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "${{ needs.performance-monitoring.outputs.alert-level == 'critical' && '🚨 Critical Performance Alert' || '⚠️ Performance Warning' }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn",
+                        "text": "*Application:* ${{ github.repository }}\n*Environment:* Production\n*Commit:* <${{ github.event.head_commit.url }}|${{ github.sha }}>\n*Author:* ${{ github.actor }}"
+                      }
+                    },
+                    {
+                      "type": "section",
+                      "text": {
+                        "type": "mrkdwn", 
+                        "text": "*Issues Detected:*\n${{ needs.performance-monitoring.outputs.degradation-summary }}"
+                      }
+                    },
+                    {
+                      "type": "actions",
+                      "elements": [
+                        {
+                          "type": "button",
+                          "text": {
+                            "type": "plain_text",
+                            "text": "View Report"
+                          },
+                          "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                        },
+                        {
+                          "type": "button", 
+                          "text": {
+                            "type": "plain_text",
+                            "text": "Test Site"
+                          },
+                          "url": "${{ env.PRODUCTION_URL }}"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Create Performance Issue
+        if: needs.performance-monitoring.outputs.alert-level == 'critical'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Critical Performance Degradation - ${context.sha.substring(0, 7)}`;
+            const body = `
+            ## 🚨 Critical Performance Degradation Detected
+
+            **Time:** ${new Date().toISOString()}
+            **Commit:** ${context.sha}
+            **Author:** ${context.actor}
+            **Branch:** ${context.ref.replace('refs/heads/', '')}
+
+            ### Performance Issues
+            ${{ needs.performance-monitoring.outputs.degradation-summary }}
+
+            ### Immediate Actions Required
+            - [ ] Review recent code changes that may impact performance
+            - [ ] Check for new dependencies or bundle size increases
+            - [ ] Investigate database query performance
+            - [ ] Review server response times
+            - [ ] Check for memory leaks or resource issues
+
+            ### Performance Workflow
+            - **Workflow Run:** [View Details](${context.server_url}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+            - **Production URL:** ${{ env.PRODUCTION_URL }}
+
+            ### Performance Optimization Checklist
+            - [ ] Bundle size analysis
+            - [ ] Image optimization review
+            - [ ] Code splitting opportunities
+            - [ ] Database query optimization
+            - [ ] CDN and caching review
+            - [ ] Third-party script audit
+
+            ---
+            *Auto-generated by Performance Monitoring*
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['performance', 'critical', 'bug']
+            });

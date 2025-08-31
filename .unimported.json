@@ -1,0 +1,32 @@
+{
+  "entry": [
+    "src/**/*.{js,jsx,ts,tsx}",
+    "pages/**/*.{js,jsx,ts,tsx}",
+    "app/**/*.{js,jsx,ts,tsx}"
+  ],
+  "extensions": [".js", ".jsx", ".ts", ".tsx"],
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/*.d.ts",
+    "**/*.test.{js,jsx,ts,tsx}",
+    "**/*.spec.{js,jsx,ts,tsx}",
+    "**/coverage/**",
+    "**/.next/**",
+    "**/build/**",
+    "**/dist/**",
+    "**/quality-reports/**",
+    "**/scripts/**"
+  ],
+  "ignoreUnresolved": [
+    "react",
+    "react-dom",
+    "next",
+    "@types/react",
+    "@types/react-dom",
+    "@types/node"
+  ],
+  "respectGitignore": true,
+  "showPreview": true,
+  "showUnusedDeps": true,
+  "showUnusedFiles": true
+}
