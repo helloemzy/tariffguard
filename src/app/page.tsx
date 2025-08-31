@@ -32,7 +32,7 @@ export default function HomePage() {
         setLastCheckResult('error')
         alert(`❌ Manual check failed: ${data.error}`)
       }
-    } catch (error) {
+    } catch (_error) {
       setLastCheckResult('error')
       alert('❌ Failed to connect to monitoring system')
     } finally {
@@ -46,8 +46,8 @@ export default function HomePage() {
         <div className='text-center'>
           <h1 className='mb-6 text-5xl font-bold text-gray-900'>TariffGuard</h1>
           <p className='mx-auto mb-8 max-w-2xl text-xl text-gray-600'>
-            Simple Federal Register monitoring for Preston's tariff alerts.
-            Tracks HS codes 7318.15.20, 8481.80.90, and 7326.90.85 every 4 hours.
+            Live Federal Register monitoring for Preston&apos;s tariff alerts.
+            Tracks HS codes 7318.15.20, 8481.80.90, and 7326.90.85 with real-time data.
           </p>
           <div className='flex justify-center gap-4'>
             <Link
@@ -90,7 +90,7 @@ export default function HomePage() {
               Simple Monitoring
             </h3>
             <p className='text-gray-600'>
-              Focused on Preston's 3 specific HS codes with basic Federal Register polling.
+              Focused on Preston&apos;s 3 specific HS codes with basic Federal Register polling.
               No complex features - just reliable tariff change detection.
             </p>
           </div>
@@ -116,7 +116,7 @@ export default function HomePage() {
         <div className='mt-16'>
           <div className='mb-8 text-center'>
             <h2 className='mb-4 text-3xl font-bold text-gray-900'>Monitored HS Codes</h2>
-            <p className='text-gray-600'>Preston's specific product codes being tracked</p>
+            <p className='text-gray-600'>Preston&apos;s specific product codes being tracked</p>
           </div>
           
           <div className='grid grid-cols-1 gap-6 md:grid-cols-3'>
@@ -241,7 +241,7 @@ export default function HomePage() {
         {/* Footer */}
         <div className='mt-16 text-center text-sm text-gray-500'>
           <p>Minimal MVP focused on reliable Federal Register monitoring.</p>
-          <p className='mt-1'>Built specifically for Preston's tariff alerting needs.</p>
+          <p className='mt-1'>Built specifically for Preston&apos;s tariff alerting needs.</p>
         </div>
       </div>
     </main>

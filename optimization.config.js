@@ -5,7 +5,7 @@
  * and provides utilities for build performance monitoring.
  */
 
-const path = require('path')
+const _path = require('path')
 
 // Environment-specific configurations
 const ENVIRONMENTS = {

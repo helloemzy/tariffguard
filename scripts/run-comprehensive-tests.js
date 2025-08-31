@@ -149,7 +149,7 @@ function validateEnvironment() {
 
 function runTestSuite() {
   logHeader('TARIFFGUARD COMPREHENSIVE TEST EXECUTION');
-  log('Testing system for Preston\\'s steel importing business', 'dim');
+  log('Testing system for Preston steel importing business', 'dim');
   
   if (!validateEnvironment()) {
     process.exit(1);
