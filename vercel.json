@@ -94,5 +94,5 @@
     "silent": false
   },
   "outputDirectory": ".next",
-  "ignoreCommand": "exit 0"
+  "ignoreCommand": "exit 1"
 }
