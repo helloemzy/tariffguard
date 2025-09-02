@@ -161,9 +161,8 @@ export class USITCDataWebClient {
             data_type: 'tariff_rates'
           };
 
-          const result = await this.makeRequest<any>('/api/query/run', {
-            method: 'POST',
-            body: JSON.stringify(queryPayload),
+          const result = await this.makeRequest<any>('/tariffs', {
+            method: 'GET',
           });
 
           // Parse the response - structure may vary based on USITC API format
@@ -268,8 +267,8 @@ export class USITCDataWebClient {
         };
       }
 
-      // Simple connectivity test
-      const testResult = await this.makeRequest<any>('/api/health', {
+      // Simple connectivity test using actual USITC endpoint
+      const testResult = await this.makeRequest<any>('/tariffs', {
         method: 'GET',
       });
 
