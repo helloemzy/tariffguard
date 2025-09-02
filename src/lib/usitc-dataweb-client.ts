@@ -152,15 +152,7 @@ export class USITCDataWebClient {
       // Query each HS code individually
       for (const [hsCode, info] of Object.entries(PRESTON_HS_CODES_USITC)) {
         try {
-          // Use USITC's query endpoint - this may need adjustment based on actual API structure
-          const queryPayload = {
-            classification: hsCode,
-            trade_flow: 'imports',
-            time_period: new Date().getFullYear().toString(),
-            reporter: 'USA',
-            data_type: 'tariff_rates'
-          };
-
+          // Use USITC's tariffs endpoint for getting tariff data
           const result = await this.makeRequest<any>('/tariffs', {
             method: 'GET',
           });
