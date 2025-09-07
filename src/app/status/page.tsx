@@ -25,7 +25,7 @@ export default function SimpleStatusPage() {
     try {
       // Test system components
       const [federalRegisterTest, productionValidation] = await Promise.allSettled([
-        fetch('/api/test/federal-register').then(res => res.json()),
+        fetch('/api/monitor/federal-register').then(res => res.json()),
         fetch('/api/production-validation').then(res => res.json())
       ])
       
