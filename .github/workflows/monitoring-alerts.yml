@@ -461,7 +461,7 @@ jobs:
 
       - name: Create Critical Issue
         if: steps.alerts.outputs.critical-count > 0
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const title = `🚨 Critical Monitoring Alert - ${new Date().toISOString().split('T')[0]}`;

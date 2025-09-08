@@ -625,7 +625,7 @@ jobs:
 
       - name: Create Critical Security Issue
         if: steps.security-status.outputs.alert-level == 'critical'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const title = `🚨 CRITICAL: Security Vulnerabilities Detected - ${context.sha.substring(0, 7)}`;
