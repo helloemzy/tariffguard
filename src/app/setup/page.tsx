@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClientSupabaseClient } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
-import { User } from '@supabase/supabase-js'
+import type { User } from '@supabase/supabase-js'
 
 interface SetupFormData {
   companyName: string
@@ -69,7 +69,7 @@ export default function SetupPage() {
       setError(null)
 
       // Create workspace
-      const { data: workspace, error: workspaceError } = await supabase
+      const { error: workspaceError } = await supabase
         .from('workspaces')
         .insert({
           user_id: user.id,
