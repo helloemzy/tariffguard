@@ -31,18 +31,21 @@ export class OCRService {
    * Initialize Tesseract worker
    */
   async initialize(): Promise<void> {
-    if (this.worker) return
+    if (this.worker) {
+      return
+    }
 
     try {
       console.log('🔍 Initializing OCR worker...')
       this.worker = await createWorker('eng')
-      
+
       // Configure for better number and table recognition
       await this.worker.setParameters({
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,()-$ ',
-        preserve_interword_spaces: '1'
+        tessedit_char_whitelist:
+          '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,()-$ ',
+        preserve_interword_spaces: '1',
       })
-      
+
       console.log('✅ OCR worker initialized successfully')
     } catch (error) {
       console.error('❌ Failed to initialize OCR worker:', error)
@@ -58,23 +61,25 @@ export class OCRService {
 
     try {
       await this.initialize()
-      
+
       if (!this.worker) {
         throw new Error('OCR worker not initialized')
       }
 
       console.log(`🔍 Processing ${mimeType} image for OCR...`)
-      
+
       // Perform OCR
-      const { data: { text, confidence } } = await this.worker.recognize(imageBuffer)
-      
+      const {
+        data: { text, confidence },
+      } = await this.worker.recognize(imageBuffer)
+
       console.log(`✅ OCR completed with ${confidence.toFixed(1)}% confidence`)
-      
+
       // Extract line items from text
       const lineItems = this.extractLineItemsFromText(text, confidence)
-      
+
       const processingTime = Date.now() - startTime
-      
+
       return {
         success: true,
         lineItems,
@@ -82,18 +87,17 @@ export class OCRService {
         confidence,
         processingTime,
       }
-
     } catch (error) {
       console.error('❌ OCR processing failed:', error)
       const processingTime = Date.now() - startTime
-      
+
       return {
         success: false,
         lineItems: [],
         fullText: '',
         confidence: 0,
         processingTime,
-        error: error instanceof Error ? error.message : 'Unknown OCR error'
+        error: error instanceof Error ? error.message : 'Unknown OCR error',
       }
     }
   }
@@ -106,21 +110,21 @@ export class OCRService {
 
     try {
       console.log('🔍 Processing PDF document...')
-      
+
       // Dynamically import pdf-parse to avoid build issues
-      const pdfParse = (await import('pdf-parse')).default
-      
+      const pdfParse = (await import('pdf-parse')).default as any
+
       // Extract text from PDF
       const data = await pdfParse(pdfBuffer)
       const text = data.text
-      
+
       console.log(`✅ PDF text extracted: ${text.length} characters`)
-      
+
       // If PDF has selectable text, use it directly
       if (text && text.trim().length > 50) {
         const lineItems = this.extractLineItemsFromText(text, 95) // High confidence for PDF text
         const processingTime = Date.now() - startTime
-        
+
         return {
           success: true,
           lineItems,
@@ -132,28 +136,28 @@ export class OCRService {
         // PDF is likely image-based, would need image extraction
         // For now, return empty result with message
         const processingTime = Date.now() - startTime
-        
+
         return {
           success: false,
           lineItems: [],
           fullText: '',
           confidence: 0,
           processingTime,
-          error: 'PDF appears to be image-based. Please convert to image format for OCR processing.'
+          error:
+            'PDF appears to be image-based. Please convert to image format for OCR processing.',
         }
       }
-
     } catch (error) {
       console.error('❌ PDF processing failed:', error)
       const processingTime = Date.now() - startTime
-      
+
       return {
         success: false,
         lineItems: [],
         fullText: '',
         confidence: 0,
         processingTime,
-        error: error instanceof Error ? error.message : 'Unknown PDF processing error'
+        error: error instanceof Error ? error.message : 'Unknown PDF processing error',
       }
     }
   }
@@ -161,7 +165,10 @@ export class OCRService {
   /**
    * Extract line items from OCR text using pattern matching
    */
-  private extractLineItemsFromText(text: string, baseConfidence: number): ExtractedLineItem[] {
+  private extractLineItemsFromText(
+    text: string,
+    baseConfidence: number
+  ): ExtractedLineItem[] {
     const lineItems: ExtractedLineItem[] = []
     const lines = text.split('\n').filter(line => line.trim().length > 5)
 
@@ -169,7 +176,7 @@ export class OCRService {
 
     for (const line of lines) {
       const trimmedLine = line.trim()
-      
+
       // Skip header lines and short lines
       if (this.isHeaderLine(trimmedLine) || trimmedLine.length < 10) {
         continue
@@ -191,9 +198,24 @@ export class OCRService {
    */
   private isHeaderLine(line: string): boolean {
     const headerKeywords = [
-      'invoice', 'commercial', 'packing', 'list', 'total', 'subtotal', 
-      'description', 'quantity', 'price', 'amount', 'hs code', 'harmonized',
-      'date', 'bill to', 'ship to', 'from', 'page', 'invoice number'
+      'invoice',
+      'commercial',
+      'packing',
+      'list',
+      'total',
+      'subtotal',
+      'description',
+      'quantity',
+      'price',
+      'amount',
+      'hs code',
+      'harmonized',
+      'date',
+      'bill to',
+      'ship to',
+      'from',
+      'page',
+      'invoice number',
     ]
 
     const lowerLine = line.toLowerCase()
@@ -203,26 +225,29 @@ export class OCRService {
   /**
    * Parse individual line item from text
    */
-  private parseLineItem(line: string, baseConfidence: number): ExtractedLineItem | null {
+  private parseLineItem(
+    line: string,
+    baseConfidence: number
+  ): ExtractedLineItem | null {
     // Patterns for different line item formats
     const patterns: RegExp[] = [
       // Pattern 1: Description - Quantity - Price (common invoice format)
       /^(.+?)\s+(\d+(?:\.\d+)?)\s+\$?(\d+(?:,\d{3})*(?:\.\d{2})?)/,
-      
+
       // Pattern 2: HS Code followed by description and value
       /(\d{4}(?:\.\d{2}(?:\.\d{2})?)?)\s+(.+?)\s+\$?(\d+(?:,\d{3})*(?:\.\d{2})?)/,
-      
+
       // Pattern 3: Description with possible HS code embedded
       /(.+?(?:\d{4}\.\d{2}\.\d{2}.+?))\s+\$?(\d+(?:,\d{3})*(?:\.\d{2})?)/,
-      
+
       // Pattern 4: Simple description and value
-      /^(.+?)\s+\$?(\d+(?:,\d{3})*(?:\.\d{2})?)$/
+      /^(.+?)\s+\$?(\d+(?:,\d{3})*(?:\.\d{2})?)$/,
     ]
 
     for (let i = 0; i < patterns.length; i++) {
       const match = line.match(patterns[i]!)
       if (match) {
-        return this.createLineItemFromMatch(match, line, baseConfidence - (i * 5))
+        return this.createLineItemFromMatch(match, line, baseConfidence - i * 5)
       }
     }
 
@@ -231,7 +256,7 @@ export class OCRService {
       return {
         description: line.replace(/\s+/g, ' ').trim(),
         confidence: Math.max(30, baseConfidence - 40),
-        rawText: line
+        rawText: line,
       }
     }
 
@@ -242,14 +267,14 @@ export class OCRService {
    * Create line item from regex match
    */
   private createLineItemFromMatch(
-    match: RegExpMatchArray, 
-    rawText: string, 
+    match: RegExpMatchArray,
+    rawText: string,
     confidence: number
   ): ExtractedLineItem {
     const lineItem: ExtractedLineItem = {
       description: '',
       confidence: Math.max(10, confidence),
-      rawText
+      rawText,
     }
 
     // Extract HS code if present
@@ -280,7 +305,7 @@ export class OCRService {
       const values = valueMatch
         .map(v => parseFloat(v.replace(/[$,]/g, '')))
         .filter(v => !isNaN(v))
-      
+
       if (values.length > 0) {
         lineItem.value = Math.max(...values)
         lineItem.confidence += 15
@@ -288,7 +313,9 @@ export class OCRService {
     }
 
     // Extract unit if present
-    const unitMatch = rawText.match(/\b(pcs?|pieces?|kg|kgs?|lbs?|each|ea|units?|boxes?|cartons?)\b/i)
+    const unitMatch = rawText.match(
+      /\b(pcs?|pieces?|kg|kgs?|lbs?|each|ea|units?|boxes?|cartons?)\b/i
+    )
     if (unitMatch && unitMatch[1]) {
       lineItem.unit = unitMatch[1].toLowerCase()
       lineItem.confidence += 5
