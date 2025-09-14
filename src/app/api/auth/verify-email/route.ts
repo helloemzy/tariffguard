@@ -3,14 +3,21 @@
  * Handles email verification tokens and confirmation
  */
 
-import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
 // import { sendEmail } from '@/lib/email' // TODO: Import actual email service
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Create Supabase client safely
+function createSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Missing Supabase environment variables')
+  }
+
+  return createClient(supabaseUrl, supabaseKey)
+}
 
 /**
  * Send email verification token
@@ -26,6 +33,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const supabase = createSupabaseClient()
+
     // Generate verification token (6-digit code)
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString()
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes
@@ -38,7 +47,7 @@ export async function POST(request: NextRequest) {
         email,
         token: verificationCode,
         expires_at: expiresAt.toISOString(),
-        verified: false
+        verified: false,
       })
 
     if (tokenError) {
@@ -50,7 +59,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Send verification email (placeholder - integrate with actual email service)
-    console.log(`Verification email would be sent to ${email} with code: ${verificationCode}`)
+    console.log(
+      `Verification email would be sent to ${email} with code: ${verificationCode}`
+    )
     // await sendEmail({
     //   to: email,
     //   subject: 'Verify your TariffGuard email address',
@@ -60,9 +71,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Verification code sent to email',
-      expiresIn: '15 minutes'
+      expiresIn: '15 minutes',
     })
-
   } catch (error) {
     console.error('❌ Email verification failed:', error)
     return NextResponse.json(
@@ -85,6 +95,8 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const supabase = createSupabaseClient()
 
     // Find and validate token
     const { data: tokenData, error: tokenError } = await supabase
@@ -116,23 +128,19 @@ export async function PUT(request: NextRequest) {
       .from('email_verification_tokens')
       .update({
         verified: true,
-        verified_at: new Date().toISOString()
+        verified_at: new Date().toISOString(),
       })
       .eq('id', tokenData.id)
 
     if (updateError) {
       console.error('❌ Failed to update verification token:', updateError)
-      return NextResponse.json(
-        { error: 'Failed to verify email' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Failed to verify email' }, { status: 500 })
     }
 
     // Update user's email verification status in Supabase Auth
-    const { error: authError } = await supabase.auth.admin.updateUserById(
-      userId,
-      { email_confirm: true } as any
-    )
+    const { error: authError } = await supabase.auth.admin.updateUserById(userId, {
+      email_confirm: true,
+    } as any)
 
     if (authError) {
       console.error('❌ Failed to update auth user:', authError)
@@ -144,15 +152,11 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Email verified successfully',
-      emailVerified: true
+      emailVerified: true,
     })
-
   } catch (error) {
     console.error('❌ Email verification failed:', error)
-    return NextResponse.json(
-      { error: 'Failed to verify email' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Failed to verify email' }, { status: 500 })
   }
 }
 
