@@ -4,19 +4,16 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { logger } from '@/lib/logger'
 import { withLogging } from '@/middleware/logging'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function handler(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const hoursBack = parseInt(searchParams.get('hours') || '24')
   const workspaceId = searchParams.get('workspaceId') || undefined
+
+  const supabase = createServerSupabaseClient()
 
   try {
     // Get error statistics
@@ -132,6 +129,8 @@ async function resolveErrorHandler(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const supabase = createServerSupabaseClient()
 
     // Note: In a real app, you'd want to verify admin permissions here
     const { error } = await supabase

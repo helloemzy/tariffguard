@@ -4,16 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { logger } from '@/lib/logger'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // Accept team invitation
 export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { token, userId } = await request.json()
 
@@ -169,6 +166,8 @@ export async function POST(request: NextRequest) {
 
 // Get invitation details (for join page)
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const token = searchParams.get('token')

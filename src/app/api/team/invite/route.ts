@@ -4,17 +4,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { emailService } from '@/lib/email'
 import crypto from 'crypto'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 // Send team invitation
 export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { email, role, workspaceId, inviterName, workspaceName } = await request.json()
 
@@ -160,6 +157,8 @@ export async function POST(request: NextRequest) {
 
 // Get pending invitations for a workspace
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')
@@ -233,6 +232,8 @@ export async function GET(request: NextRequest) {
 
 // Cancel invitation
 export async function DELETE(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const invitationId = searchParams.get('invitationId')

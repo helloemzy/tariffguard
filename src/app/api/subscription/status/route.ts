@@ -4,15 +4,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { SUBSCRIPTION_PLANS } from '@/lib/stripe'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')

@@ -6,16 +6,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { stripe } from '@/lib/stripe'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!
 
 export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const body = await request.text()
     const signature = request.headers.get('stripe-signature')!
@@ -34,11 +31,11 @@ export async function POST(request: NextRequest) {
     switch (event.type) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated':
-        await handleSubscriptionChange(event.data.object as Stripe.Subscription)
+        await handleSubscriptionChange(supabase, event.data.object as Stripe.Subscription)
         break
 
       case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object as Stripe.Subscription)
+        await handleSubscriptionDeleted(supabase, event.data.object as Stripe.Subscription)
         break
 
       case 'invoice.payment_succeeded':
@@ -58,7 +55,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Log the event
-    await logBillingEvent(event)
+    await logBillingEvent(supabase, event)
 
     return NextResponse.json({ received: true })
   } catch (error) {
@@ -70,7 +67,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleSubscriptionChange(subscription: Stripe.Subscription) {
+async function handleSubscriptionChange(supabase: any, subscription: Stripe.Subscription) {
   try {
     const customerId = subscription.customer as string
     const workspaceId = subscription.metadata.workspace_id
@@ -113,7 +110,7 @@ async function handleSubscriptionChange(subscription: Stripe.Subscription) {
   }
 }
 
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+async function handleSubscriptionDeleted(supabase: any, subscription: Stripe.Subscription) {
   try {
     const workspaceId = subscription.metadata.workspace_id
     
@@ -205,7 +202,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 }
 
-async function logBillingEvent(event: Stripe.Event) {
+async function logBillingEvent(supabase: any, event: Stripe.Event) {
   try {
     let workspaceId: string | null = null
     let amountCents: number | null = null

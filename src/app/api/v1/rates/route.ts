@@ -4,16 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { withApiAuth } from '@/lib/api-middleware'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // Get tariff rates
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   return withApiAuth(request, async (req, _context) => {
     const { searchParams } = new URL(req.url)
     const hsCode = searchParams.get('hsCode')
@@ -141,6 +138,8 @@ export async function GET(request: NextRequest) {
 
 // Bulk rate lookup endpoint
 export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   return withApiAuth(request, async (req, _context) => {
     const body = await req.json()
     const { hsCodes, includeDescription = true } = body

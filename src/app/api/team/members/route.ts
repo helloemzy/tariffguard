@@ -4,15 +4,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 // Get team members for a workspace
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')
@@ -90,6 +87,8 @@ export async function GET(request: NextRequest) {
 
 // Update team member role
 export async function PATCH(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { memberId, role, workspaceId } = await request.json()
 
@@ -151,6 +150,8 @@ export async function PATCH(request: NextRequest) {
 
 // Remove team member
 export async function DELETE(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const memberId = searchParams.get('memberId')

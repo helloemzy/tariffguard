@@ -4,16 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { logger } from '@/lib/logger'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // Get team activity feed
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')
@@ -128,6 +125,8 @@ export async function GET(request: NextRequest) {
 
 // Mark activities as read
 export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { activityIds, userId } = await request.json()
 
@@ -179,6 +178,8 @@ export async function POST(request: NextRequest) {
 
 // Get activity statistics
 export async function PATCH(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')

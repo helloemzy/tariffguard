@@ -4,14 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { logger } from '@/lib/logger'
 import crypto from 'crypto'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // Generate a secure API token
 function generateApiToken(): { token: string; hash: string; prefix: string } {
@@ -24,6 +19,8 @@ function generateApiToken(): { token: string; hash: string; prefix: string } {
 
 // Create new API token
 export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const {
       workspaceId,
@@ -151,6 +148,8 @@ export async function POST(request: NextRequest) {
 
 // Get API tokens for workspace
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')
@@ -242,6 +241,8 @@ export async function GET(request: NextRequest) {
 
 // Update or revoke API token
 export async function PATCH(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const {
       tokenId,

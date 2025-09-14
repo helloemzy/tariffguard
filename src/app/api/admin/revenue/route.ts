@@ -4,41 +4,38 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { logger } from '@/lib/logger'
 import { withLogging } from '@/middleware/logging'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function handler(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const period = searchParams.get('period') || '30' // days
   const granularity = searchParams.get('granularity') || 'day' // day, week, month
 
+  const supabase = createServerSupabaseClient()
+
   try {
     const periodDays = parseInt(period)
     const startDate = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000)
 
     // Get subscription metrics
-    const subscriptionMetrics = await getSubscriptionMetrics(startDate, granularity)
+    const subscriptionMetrics = await getSubscriptionMetrics(supabase, startDate, granularity)
 
     // Get revenue trends
-    const revenueTrends = await getRevenueTrends(startDate, granularity)
+    const revenueTrends = await getRevenueTrends(supabase, startDate, granularity)
 
     // Get customer metrics
-    const customerMetrics = await getCustomerMetrics(startDate)
+    const customerMetrics = await getCustomerMetrics(supabase, startDate)
 
     // Get plan distribution
-    const planDistribution = await getPlanDistribution()
+    const planDistribution = await getPlanDistribution(supabase)
 
     // Get usage analytics
-    const usageAnalytics = await getUsageAnalytics(startDate)
+    const usageAnalytics = await getUsageAnalytics(supabase, startDate)
 
     // Get churn analysis
-    const churnAnalysis = await getChurnAnalysis(startDate)
+    const churnAnalysis = await getChurnAnalysis(supabase, startDate)
 
     // Calculate key metrics
     const kpiMetrics = calculateKPIs(subscriptionMetrics, customerMetrics, revenueTrends)
@@ -84,7 +81,7 @@ async function handler(request: NextRequest) {
   }
 }
 
-async function getSubscriptionMetrics(startDate: Date, _granularity: string) {
+async function getSubscriptionMetrics(supabase: any, startDate: Date, _granularity: string) {
   const { data: subscriptions } = await supabase
     .from('subscriptions')
     .select('*')
@@ -97,13 +94,13 @@ async function getSubscriptionMetrics(startDate: Date, _granularity: string) {
   return {
     total: allSubscriptions?.length || 0,
     newSubscriptions: subscriptions?.length || 0,
-    activeSubscriptions: allSubscriptions?.filter(s => s.status === 'active').length || 0,
-    canceledSubscriptions: allSubscriptions?.filter(s => s.status === 'canceled').length || 0,
-    trialSubscriptions: allSubscriptions?.filter(s => s.status === 'trial').length || 0
+    activeSubscriptions: allSubscriptions?.filter((s: any) => s.status === 'active').length || 0,
+    canceledSubscriptions: allSubscriptions?.filter((s: any) => s.status === 'canceled').length || 0,
+    trialSubscriptions: allSubscriptions?.filter((s: any) => s.status === 'trial').length || 0
   }
 }
 
-async function getRevenueTrends(startDate: Date, granularity: string) {
+async function getRevenueTrends(supabase: any, startDate: Date, granularity: string) {
   // Get billing events for revenue calculation
   const { data: billingEvents } = await supabase
     .from('billing_events')
@@ -115,7 +112,7 @@ async function getRevenueTrends(startDate: Date, granularity: string) {
   // Group by time period
   const trends: Record<string, number> = {}
 
-  billingEvents?.forEach(event => {
+  billingEvents?.forEach((event: any) => {
     const date = new Date(event.processed_at)
     let key: string
 
@@ -144,12 +141,12 @@ async function getRevenueTrends(startDate: Date, granularity: string) {
   }
 }
 
-async function getCustomerMetrics(startDate: Date) {
+async function getCustomerMetrics(supabase: any, startDate: Date) {
   const { data: workspaces } = await supabase
     .from('workspaces')
     .select('created_at, subscription_plan')
 
-  const newCustomers = workspaces?.filter(w =>
+  const newCustomers = workspaces?.filter((w: any) =>
     new Date(w.created_at) >= startDate
   ).length || 0
 
@@ -166,13 +163,13 @@ async function getCustomerMetrics(startDate: Date) {
   }
 }
 
-async function getPlanDistribution() {
+async function getPlanDistribution(supabase: any) {
   const { data: subscriptions } = await supabase
     .from('subscriptions')
     .select('plan, status')
     .eq('status', 'active')
 
-  const distribution = subscriptions?.reduce((acc, sub) => {
+  const distribution = subscriptions?.reduce((acc: Record<string, number>, sub: any) => {
     acc[sub.plan] = (acc[sub.plan] || 0) + 1
     return acc
   }, {} as Record<string, number>) || {}
@@ -184,7 +181,7 @@ async function getPlanDistribution() {
   }
 }
 
-async function getUsageAnalytics(_startDate: Date) {
+async function getUsageAnalytics(supabase: any, _startDate: Date) {
   const currentMonth = new Date().toISOString().slice(0, 7)
 
   const { data: usage } = await supabase
@@ -192,8 +189,8 @@ async function getUsageAnalytics(_startDate: Date) {
     .select('*')
     .eq('month_year', currentMonth)
 
-  const totalCalculations = usage?.reduce((sum, u) => sum + u.calculations_count, 0) || 0
-  const totalOcrProcessing = usage?.reduce((sum, u) => sum + (u.ocr_processing_count || 0), 0) || 0
+  const totalCalculations = usage?.reduce((sum: number, u: any) => sum + u.calculations_count, 0) || 0
+  const totalOcrProcessing = usage?.reduce((sum: number, u: any) => sum + (u.ocr_processing_count || 0), 0) || 0
   const averageCalculationsPerUser = usage?.length ? totalCalculations / usage.length : 0
 
   return {
@@ -204,7 +201,7 @@ async function getUsageAnalytics(_startDate: Date) {
   }
 }
 
-async function getChurnAnalysis(_startDate: Date) {
+async function getChurnAnalysis(supabase: any, _startDate: Date) {
   const { data: canceledSubs } = await supabase
     .from('subscriptions')
     .select('*')

@@ -4,16 +4,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { logger } from '@/lib/logger'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // Get API usage analytics
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = searchParams.get('workspaceId')
@@ -75,7 +72,7 @@ export async function GET(request: NextRequest) {
     const analytics = processUsageData(usageLogs || [], groupBy)
 
     // Get current rate limit status for tokens
-    const rateLimitStatus = await getCurrentRateLimitStatus(workspaceId, tokenId || undefined)
+    const rateLimitStatus = await getCurrentRateLimitStatus(supabase, workspaceId, tokenId || undefined)
 
     // Get top endpoints
     const endpointStats = getEndpointStats(usageLogs || [])
@@ -165,7 +162,7 @@ function processUsageData(logs: any[], groupBy: string) {
 }
 
 // Helper function to get current rate limit status
-async function getCurrentRateLimitStatus(_workspaceId: string, tokenId?: string) {
+async function getCurrentRateLimitStatus(supabase: any, _workspaceId: string, tokenId?: string) {
   if (!tokenId) return null
 
   try {
@@ -181,7 +178,7 @@ async function getCurrentRateLimitStatus(_workspaceId: string, tokenId?: string)
       hour: hour.data,
       day: day.data
     }
-  } catch (error) {
+  } catch (_error) {
     return null
   }
 }

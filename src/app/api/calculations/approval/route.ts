@@ -4,13 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { logger } from '@/lib/logger'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 // Create calculation approval request
 export async function POST(request: NextRequest) {
@@ -29,6 +24,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const supabase = createServerSupabaseClient()
 
     // Verify user has permission to create calculations
     const { data: member } = await supabase
@@ -139,6 +136,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    const supabase = createServerSupabaseClient()
+
     // Get approvals
     const { data: approvals, error } = await supabase
       .from('calculation_approvals')
@@ -245,6 +244,8 @@ export async function PATCH(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    const supabase = createServerSupabaseClient()
 
     // Verify user has permission to approve calculations
     const { data: member } = await supabase
