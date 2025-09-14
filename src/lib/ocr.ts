@@ -111,8 +111,8 @@ export class OCRService {
     try {
       console.log('🔍 Processing PDF document...')
 
-      // Dynamically import pdf-parse to avoid build issues
-      const pdfParse = (await import('pdf-parse')).default as any
+      // Dynamically import pdf-parse with proper typing
+      const pdfParse = (await import('pdf-parse')).default
 
       // Extract text from PDF
       const data = await pdfParse(pdfBuffer)
