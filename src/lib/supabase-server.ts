@@ -28,3 +28,44 @@ export function createServerSupabaseClient() {
     }
   })
 }
+
+export async function testDatabaseConnectivity(): Promise<{
+  success: boolean
+  message: string
+  details?: any
+}> {
+  try {
+    const client = createServerSupabaseClient()
+
+    // Simple connectivity test
+    const { error } = await client
+      .from('hs_codes')
+      .select('count(*)', { count: 'exact' })
+      .limit(1)
+
+    if (error && !error.message.includes('relation "hs_codes" does not exist')) {
+      throw error
+    }
+
+    return {
+      success: true,
+      message: 'Database connectivity test passed',
+      details: {
+        url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        hasServiceKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+        tableExists: !error
+      }
+    }
+
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Database connectivity test failed',
+      details: {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        hasServiceKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY)
+      }
+    }
+  }
+}

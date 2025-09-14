@@ -4,13 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 import crypto from 'crypto'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 interface ApiContext {
   token: any
@@ -22,18 +17,19 @@ export async function withApiAuth(
   request: NextRequest,
   handler: (request: NextRequest, context: ApiContext) => Promise<NextResponse>
 ): Promise<NextResponse> {
+  const supabase = createServerSupabaseClient()
   const startTime = Date.now()
 
   try {
     // Extract API token from Authorization header
     const authHeader = request.headers.get('authorization')
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return await logApiUsage(request, null, null, 401, Date.now() - startTime, 'Missing or invalid authorization header')
+      return await logApiUsage(supabase, request, null, null, 401, Date.now() - startTime, 'Missing or invalid authorization header')
     }
 
     const token = authHeader.substring(7) // Remove 'Bearer ' prefix
     if (!token.startsWith('tg_')) {
-      return await logApiUsage(request, null, null, 401, Date.now() - startTime, 'Invalid token format')
+      return await logApiUsage(supabase, request, null, null, 401, Date.now() - startTime, 'Invalid token format')
     }
 
     // Hash the token for lookup
@@ -51,12 +47,12 @@ export async function withApiAuth(
       .single()
 
     if (tokenError || !apiToken) {
-      return await logApiUsage(request, null, null, 401, Date.now() - startTime, 'Invalid or inactive token')
+      return await logApiUsage(supabase, request, null, null, 401, Date.now() - startTime, 'Invalid or inactive token')
     }
 
     // Check if token has expired
     if (apiToken.expires_at && new Date(apiToken.expires_at) < new Date()) {
-      return await logApiUsage(request, apiToken.id, apiToken.workspace_id, 401, Date.now() - startTime, 'Token has expired')
+      return await logApiUsage(supabase, request, apiToken.id, apiToken.workspace_id, 401, Date.now() - startTime, 'Token has expired')
     }
 
     // Check rate limits
@@ -73,6 +69,7 @@ export async function withApiAuth(
       const exceededLimit = !minuteLimit?.allowed ? 'minute' : !hourLimit?.allowed ? 'hour' : 'day'
 
       return await logApiUsage(
+        supabase,
         request,
         apiToken.id,
         apiToken.workspace_id,
@@ -99,6 +96,7 @@ export async function withApiAuth(
 
     if (requiredScope && !apiToken.scopes.includes(requiredScope)) {
       return await logApiUsage(
+        supabase,
         request,
         apiToken.id,
         apiToken.workspace_id,
@@ -125,6 +123,7 @@ export async function withApiAuth(
     // Log successful API usage
     const responseTime = Date.now() - startTime
     await logApiUsage(
+      supabase,
       request,
       apiToken.id,
       apiToken.workspace_id,
@@ -145,12 +144,13 @@ export async function withApiAuth(
 
   } catch (error) {
     console.error('API middleware error:', error)
-    return await logApiUsage(request, null, null, 500, Date.now() - startTime, 'Internal server error')
+    return await logApiUsage(supabase, request, null, null, 500, Date.now() - startTime, 'Internal server error')
   }
 }
 
 // Helper function to log API usage
 async function logApiUsage(
+  supabase: any,
   request: NextRequest,
   tokenId: string | null,
   workspaceId: string | null,

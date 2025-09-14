@@ -3,13 +3,8 @@
  * Handles calculation limits and usage counting for subscription tiers
  */
 
-import { createClient } from '@supabase/supabase-js'
 import { SUBSCRIPTION_PLANS, canMakeCalculation as checkPlanLimits } from '@/lib/stripe'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 export interface UsageInfo {
   canMakeCalculation: boolean
@@ -23,6 +18,8 @@ export interface UsageInfo {
  * Check if workspace can make a calculation based on their subscription plan
  */
 export async function checkCalculationLimit(workspaceId: string): Promise<UsageInfo> {
+  const supabase = createServerSupabaseClient()
+
   try {
     // Get workspace subscription info
     const { data: workspace, error: workspaceError } = await supabase
@@ -95,6 +92,8 @@ export async function checkCalculationLimit(workspaceId: string): Promise<UsageI
  * Increment calculation usage for workspace
  */
 export async function incrementCalculationUsage(workspaceId: string): Promise<boolean> {
+  const supabase = createServerSupabaseClient()
+
   try {
     // Use the database function to increment usage
     const { error } = await supabase.rpc('increment_calculation_usage', {
@@ -118,6 +117,8 @@ export async function incrementCalculationUsage(workspaceId: string): Promise<bo
  * Get usage statistics for workspace
  */
 export async function getUsageStatistics(workspaceId: string, months = 6) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const endDate = new Date()
     const startDate = new Date()
@@ -147,6 +148,8 @@ export async function getUsageStatistics(workspaceId: string, months = 6) {
  * Get billing history for workspace
  */
 export async function getBillingHistory(workspaceId: string, limit = 10) {
+  const supabase = createServerSupabaseClient()
+
   try {
     const { data: billingData, error } = await supabase
       .from('billing_events')

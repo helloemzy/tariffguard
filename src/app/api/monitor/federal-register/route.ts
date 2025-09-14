@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { federalRegisterClient, PRESTON_HS_CODES, type MonitoringResult, type TariffRate } from '@/lib/federal-register-client'
-import { createServerSupabaseClient } from '@/lib/supabase-minimal'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 // Types for API responses
 interface ApiResponse<T = any> {

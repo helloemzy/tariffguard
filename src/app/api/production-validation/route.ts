@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 // import { runFederalRegisterSystemTest } from '@/lib/minimal-federal-register-test';
 // import { testEmailService } from '@/lib/minimal-email-service';
-import { testDatabaseConnectivity } from '@/lib/supabase-minimal';
+import { testDatabaseConnectivity } from '@/lib/supabase-server';
 
 /**
  * Comprehensive production validation endpoint for Preston's TariffGuard system

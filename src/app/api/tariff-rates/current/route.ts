@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { createServerSupabaseClient } from '@/lib/supabase-minimal';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { usitcDataWebClient, getPrestonCurrentRates, PRESTON_HS_CODES_USITC } from '@/lib/usitc-dataweb-client';
 
 // Types for API responses
