@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClientSupabaseClient } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+
+import { createClientSupabaseClient } from '@/lib/supabase'
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false)
@@ -45,12 +46,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="max-w-md w-full space-y-8">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-w-md space-y-8">
         {/* Header */}
         <div className="text-center">
           <Link href="/" className="inline-block">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">TariffGuard</h1>
+            <h1 className="mb-2 text-4xl font-bold text-gray-900">TariffGuard</h1>
           </Link>
           <p className="text-lg text-gray-600">
             Professional tariff monitoring for importers
@@ -58,10 +59,10 @@ export default function LoginPage() {
         </div>
 
         {/* Login Card */}
-        <div className="bg-white rounded-lg shadow-lg p-8">
+        <div className="rounded-lg bg-white p-8 shadow-lg">
           <div className="space-y-6">
             <div className="text-center">
-              <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              <h2 className="mb-2 text-2xl font-semibold text-gray-900">
                 Welcome back
               </h2>
               <p className="text-gray-600">
@@ -71,7 +72,7 @@ export default function LoginPage() {
 
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-4">
+              <div className="rounded-md border border-red-200 bg-red-50 p-4">
                 <div className="flex">
                   <div className="ml-3">
                     <h3 className="text-sm font-medium text-red-800">
@@ -89,16 +90,16 @@ export default function LoginPage() {
             <button
               onClick={handleGoogleSignIn}
               disabled={loading}
-              className="w-full flex justify-center items-center px-4 py-3 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex w-full items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? (
                 <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                  <div className="mr-2 size-4 animate-spin rounded-full border-b-2 border-blue-600" />
                   Signing in...
                 </div>
               ) : (
                 <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+                  <svg className="mr-2 size-5" viewBox="0 0 24 24">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -114,19 +115,19 @@ export default function LoginPage() {
               <h3 className="text-sm font-medium text-gray-900">Why TariffGuard?</h3>
               <ul className="space-y-2 text-sm text-gray-600">
                 <li className="flex items-center">
-                  <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="mr-2 size-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                   Real-time USITC government data
                 </li>
                 <li className="flex items-center">
-                  <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="mr-2 size-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                   Instant tariff change alerts
                 </li>
                 <li className="flex items-center">
-                  <svg className="w-4 h-4 mr-2 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="mr-2 size-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                   Upload invoices for auto-calculation

@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClientSupabaseClient } from '@/lib/supabase'
-import { useRouter } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
+import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+
+import { createClientSupabaseClient } from '@/lib/supabase'
 
 interface SetupFormData {
   companyName: string
@@ -69,7 +70,7 @@ export default function SetupPage() {
       setError(null)
 
       // Create workspace
-      const { error: workspaceError } = await supabase
+      const { data: workspace, error: workspaceError } = await supabase
         .from('workspaces')
         .insert({
           user_id: user.id,
@@ -81,7 +82,7 @@ export default function SetupPage() {
         .select()
         .single()
 
-      if (workspaceError) {
+      if (workspaceError || !workspace) {
         throw workspaceError
       }
 
@@ -99,6 +100,20 @@ export default function SetupPage() {
         console.warn('Failed to create user preferences:', prefsError)
       }
 
+      // Send welcome email (non-blocking)
+      fetch('/api/email/send-welcome', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          workspaceId: workspace.id
+        })
+      }).catch(error => {
+        console.warn('Failed to send welcome email:', error)
+      })
+
       // Redirect to dashboard
       router.push('/dashboard')
 
@@ -111,32 +126,32 @@ export default function SetupPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div className="size-8 animate-spin rounded-full border-b-2 border-blue-600" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="max-w-2xl w-full space-y-8">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+      <div className="w-full max-w-2xl space-y-8">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">TariffGuard</h1>
+          <h1 className="mb-2 text-4xl font-bold text-gray-900">TariffGuard</h1>
           <p className="text-lg text-gray-600">
             Let&apos;s set up your workspace
           </p>
         </div>
 
         {/* Setup Card */}
-        <div className="bg-white rounded-lg shadow-lg p-8">
+        <div className="rounded-lg bg-white p-8 shadow-lg">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Welcome Message */}
-            <div className="text-center pb-6 border-b border-gray-200">
-              <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 rounded-full flex items-center justify-center">
+            <div className="border-b border-gray-200 pb-6 text-center">
+              <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-full bg-blue-100">
                 <span className="text-2xl">👋</span>
               </div>
-              <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              <h2 className="mb-2 text-2xl font-semibold text-gray-900">
                 Welcome, {user.user_metadata?.full_name || user.email?.split('@')[0]}!
               </h2>
               <p className="text-gray-600">
@@ -146,7 +161,7 @@ export default function SetupPage() {
 
             {/* Error Message */}
             {error && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-4">
+              <div className="rounded-md border border-red-200 bg-red-50 p-4">
                 <div className="flex">
                   <div className="ml-3">
                     <h3 className="text-sm font-medium text-red-800">
@@ -164,7 +179,7 @@ export default function SetupPage() {
             <div className="space-y-6">
               {/* Company Name */}
               <div>
-                <label htmlFor="companyName" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="companyName" className="mb-2 block text-sm font-medium text-gray-700">
                   Company Name *
                 </label>
                 <input
@@ -173,14 +188,14 @@ export default function SetupPage() {
                   value={formData.companyName}
                   onChange={(e) => handleInputChange('companyName', e.target.value)}
                   placeholder="e.g., Preston Steel Import Co."
-                  className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
 
               {/* Products */}
               <div>
-                <label htmlFor="products" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="products" className="mb-2 block text-sm font-medium text-gray-700">
                   What do you import/export?
                 </label>
                 <input
@@ -189,7 +204,7 @@ export default function SetupPage() {
                   value={formData.products}
                   onChange={(e) => handleInputChange('products', e.target.value)}
                   placeholder="e.g., Steel fasteners, valves, machinery"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   This helps us suggest relevant HS codes and monitoring
@@ -198,7 +213,7 @@ export default function SetupPage() {
 
               {/* Route From */}
               <div>
-                <label htmlFor="routeFrom" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="routeFrom" className="mb-2 block text-sm font-medium text-gray-700">
                   Shipping from (country/region)
                 </label>
                 <input
@@ -207,13 +222,13 @@ export default function SetupPage() {
                   value={formData.routeFrom}
                   onChange={(e) => handleInputChange('routeFrom', e.target.value)}
                   placeholder="e.g., China, Taiwan, South Korea"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
               {/* Route To */}
               <div>
-                <label htmlFor="routeTo" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="routeTo" className="mb-2 block text-sm font-medium text-gray-700">
                   Shipping to (country/region)
                 </label>
                 <input
@@ -222,7 +237,7 @@ export default function SetupPage() {
                   value={formData.routeTo}
                   onChange={(e) => handleInputChange('routeTo', e.target.value)}
                   placeholder="e.g., United States, Europe, Global"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full rounded-md border border-gray-300 px-4 py-3 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -232,11 +247,11 @@ export default function SetupPage() {
               <button
                 type="submit"
                 disabled={loading || !formData.companyName.trim()}
-                className="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex w-full justify-center rounded-md border border-transparent bg-blue-600 px-4 py-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? (
                   <div className="flex items-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    <div className="mr-2 size-4 animate-spin rounded-full border-b-2 border-white" />
                     Creating workspace...
                   </div>
                 ) : (
@@ -246,7 +261,7 @@ export default function SetupPage() {
             </div>
 
             {/* Skip Option */}
-            <div className="text-center pt-4">
+            <div className="pt-4 text-center">
               <button
                 type="button"
                 onClick={() => handleInputChange('companyName', user.user_metadata?.full_name || 'My Company')}
