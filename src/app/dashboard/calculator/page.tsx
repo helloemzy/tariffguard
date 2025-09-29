@@ -136,31 +136,51 @@ export default function CalculatorPage() {
 
   // Fetch tariff rate for HS code
   const fetchTariffRate = async (hsCode: string, itemId: string) => {
-    if (!hsCode || hsCode.length < 4) {return}
+    if (!hsCode || hsCode.length < 4) {
+      console.log(`⚠️ [Calculator] Skipping rate fetch - invalid HS code: "${hsCode}" (length: ${hsCode?.length || 0})`)
+      return
+    }
+
+    console.log(`🔍 [Calculator] Fetching tariff rate for HS code: ${hsCode}, item: ${itemId}`)
 
     try {
-      const response = await fetch(`/api/tariff-rates/current?hs_code=${hsCode}`)
+      const apiUrl = `/api/tariff-rates/current?hs_code=${hsCode}`
+      console.log(`📡 [Calculator] Making API call to: ${apiUrl}`)
+      
+      const response = await fetch(apiUrl)
+      console.log(`📥 [Calculator] API response status: ${response.status} ${response.statusText}`)
+      
       const data = await response.json()
+      console.log(`📋 [Calculator] API response data for ${hsCode}:`, data)
 
       if (data.success && data.rate !== null) {
+        console.log(`✅ [Calculator] Valid rate received: ${data.rate}% for HS ${hsCode}`)
         updateLineItem(itemId, 'rate', data.rate)
+        
         // Recalculate duty for this item
         const item = lineItems.find(i => i.id === itemId)
         if (item) {
           const duty = (item.value * data.rate) / 100
+          console.log(`💰 [Calculator] Calculating duty: ${item.value} × ${data.rate}% = $${duty.toFixed(2)}`)
           updateLineItem(itemId, 'duty', duty)
+        } else {
+          console.warn(`⚠️ [Calculator] Could not find line item ${itemId} for duty calculation`)
         }
       } else {
+        console.log(`❌ [Calculator] Invalid response for ${hsCode} - success: ${data.success}, rate: ${data.rate}`)
         updateLineItem(itemId, 'rate', null)
         updateLineItem(itemId, 'duty', 0)
       }
     } catch (error) {
-      console.error('Error fetching tariff rate:', error)
+      console.error(`💥 [Calculator] Error fetching tariff rate for ${hsCode}:`, error)
+      updateLineItem(itemId, 'rate', null)
+      updateLineItem(itemId, 'duty', 0)
     }
   }
 
   // Calculate duties for all items
   const calculateDuties = async () => {
+    console.log(`🧮 [Calculator] Starting bulk duty calculation for ${lineItems.length} items`)
     setCalculating(true)
     
     try {
@@ -168,22 +188,44 @@ export default function CalculatorPage() {
       let totalValue = 0
       let totalDuty = 0
 
+      console.log(`📋 [Calculator] Processing line items:`, updatedItems.map(i => ({ id: i.id, hsCode: i.hsCode, value: i.value, currentRate: i.rate })))
+
       for (const item of updatedItems) {
-        if (!item.hsCode || !item.value) {continue}
+        console.log(`🔄 [Calculator] Processing item ${item.id}: HS=${item.hsCode}, Value=${item.value}, CurrentRate=${item.rate}`)
+        
+        if (!item.hsCode || !item.value) {
+          console.log(`⏭️ [Calculator] Skipping item ${item.id} - missing HS code or value`)
+          continue
+        }
 
         // Fetch rate if not already available
         if (item.rate === null) {
-          const response = await fetch(`/api/tariff-rates/current?hs_code=${item.hsCode}`)
-          const data = await response.json()
+          console.log(`📡 [Calculator] Fetching missing rate for item ${item.id}, HS: ${item.hsCode}`)
           
-          if (data.success && data.rate !== null) {
-            item.rate = data.rate
+          try {
+            const response = await fetch(`/api/tariff-rates/current?hs_code=${item.hsCode}`)
+            const data = await response.json()
+            
+            console.log(`📥 [Calculator] Bulk calculation API response for ${item.hsCode}:`, data)
+            
+            if (data.success && data.rate !== null) {
+              item.rate = data.rate
+              console.log(`✅ [Calculator] Updated rate for ${item.hsCode}: ${data.rate}%`)
+            } else {
+              console.log(`❌ [Calculator] Failed to get rate for ${item.hsCode}`)
+            }
+          } catch (error) {
+            console.error(`💥 [Calculator] Error fetching rate for ${item.hsCode} during bulk calculation:`, error)
           }
         }
 
         // Calculate duty
         if (item.rate !== null) {
           item.duty = (item.value * item.rate) / 100
+          console.log(`💰 [Calculator] Item ${item.id} duty: ${item.value} × ${item.rate}% = $${item.duty.toFixed(2)}`)
+        } else {
+          item.duty = 0
+          console.log(`⚠️ [Calculator] Item ${item.id} has no rate, duty set to $0`)
         }
 
         totalValue += item.value
@@ -192,6 +234,11 @@ export default function CalculatorPage() {
 
       const effectiveRate = totalValue > 0 ? (totalDuty / totalValue) * 100 : 0
 
+      console.log(`📊 [Calculator] Calculation summary:`)
+      console.log(`   💵 Total Value: $${totalValue.toLocaleString()}`)
+      console.log(`   💰 Total Duty: $${totalDuty.toLocaleString()}`)
+      console.log(`   📈 Effective Rate: ${effectiveRate.toFixed(2)}%`)
+
       setLineItems(updatedItems)
       setResult({
         lineItems: updatedItems,
@@ -199,8 +246,10 @@ export default function CalculatorPage() {
         totalDuty,
         effectiveRate
       })
+      
+      console.log(`✅ [Calculator] Duty calculation completed successfully`)
     } catch (error) {
-      console.error('Calculation error:', error)
+      console.error(`💥 [Calculator] Calculation error:`, error)
     } finally {
       setCalculating(false)
     }
@@ -314,16 +363,24 @@ export default function CalculatorPage() {
 
           // Fetch tariff rate if HS code was detected
           if (lineItem.hsCode) {
+            console.log(`🔍 [OCR] Fetching rate for extracted HS code: ${lineItem.hsCode}`)
             try {
               const rateResponse = await fetch(`/api/tariff-rates/current?hs_code=${lineItem.hsCode}`)
               const rateData = await rateResponse.json()
+              console.log(`📥 [OCR] Rate response for ${lineItem.hsCode}:`, rateData)
+              
               if (rateData.success && rateData.rate !== null) {
                 lineItem.rate = rateData.rate
                 lineItem.duty = (lineItem.value * rateData.rate) / 100
+                console.log(`✅ [OCR] Applied rate to extracted item: ${lineItem.hsCode} = ${rateData.rate}%, duty = $${lineItem.duty.toFixed(2)}`)
+              } else {
+                console.log(`❌ [OCR] No rate found for extracted HS code: ${lineItem.hsCode}`)
               }
             } catch (error) {
-              console.warn(`Failed to fetch rate for HS code ${lineItem.hsCode}:`, error)
+              console.warn(`💥 [OCR] Failed to fetch rate for HS code ${lineItem.hsCode}:`, error)
             }
+          } else {
+            console.log(`⚠️ [OCR] No HS code extracted for item, rate lookup skipped`)
           }
 
           return lineItem

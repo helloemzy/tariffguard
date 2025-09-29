@@ -42,9 +42,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     
     // Parse query parameters
     const { searchParams } = new URL(request.url);
-    // const hsCodes = searchParams.get('hsCodes')?.split(',') || Object.keys(PRESTON_HS_CODES_USITC);
+    const hsCode = searchParams.get('hs_code'); // Single HS code lookup
     const source = searchParams.get('source') || 'usitc';
     const includeAnalysis = searchParams.get('analysis') !== 'false';
+    
+    // If single HS code requested, handle individual lookup
+    if (hsCode) {
+      return handleSingleHsCodeLookup(hsCode, source, requestId);
+    }
     
     let rates: { [hsCode: string]: number } = {};
     let dataSource: 'USITC_DataWeb' | 'fallback' = 'fallback';
@@ -256,6 +261,119 @@ export async function PUT(_request: NextRequest): Promise<NextResponse> {
 /**
  * Helper Functions
  */
+
+async function handleSingleHsCodeLookup(hsCode: string, source: string, requestId: string): Promise<NextResponse> {
+  try {
+    console.log(`🔍 [API] Single HS code lookup started: ${hsCode} - Request: ${requestId}`);
+    console.log(`📋 [API] Lookup parameters - source: ${source}, hsCode: ${hsCode}`);
+    
+    let rate: number | null = null;
+    let dataSource: 'USITC_DataWeb' | 'fallback' | 'database' = 'fallback';
+
+    // First try to get from database if we have it
+    console.log(`💾 [API] Attempting database lookup for HS code: ${hsCode}`);
+    try {
+      const supabase = createServerSupabaseClient();
+      const cleanHsCode = hsCode.replace(/\./g, '');
+      console.log(`🔧 [API] Cleaned HS code for DB query: ${cleanHsCode}`);
+      
+      const { data: dbRate, error } = await supabase
+        .from('tariff_rates')
+        .select('current_rate, general_rate')
+        .eq('hs_code', cleanHsCode)
+        .eq('is_current', true)
+        .single();
+
+      console.log(`📊 [API] Database query result - error: ${error?.message || 'none'}, data:`, dbRate);
+
+      if (!error && dbRate) {
+        rate = dbRate.current_rate || dbRate.general_rate || 0;
+        dataSource = 'database';
+        console.log(`✅ [API] Found rate in database: ${hsCode} = ${rate}% - Request: ${requestId}`);
+      } else {
+        console.log(`❌ [API] No rate found in database for ${hsCode} - Error: ${error?.message || 'No data'}`);
+      }
+    } catch (dbError) {
+      console.warn(`⚠️ [API] Database lookup failed for ${hsCode}, trying external sources:`, dbError);
+    }
+
+    // If not found in database and source allows USITC, try external lookup
+    if (rate === null && source === 'usitc') {
+      console.log(`🌐 [API] Attempting USITC lookup for ${hsCode} since not found in database`);
+      try {
+        // For now, get all rates and find the specific one
+        // TODO: Optimize this to lookup single HS code directly
+        const usitcResponse = await usitcDataWebClient.getCurrentRates();
+        console.log(`📡 [API] USITC response - success: ${usitcResponse.success}, data count: ${usitcResponse.data?.length || 0}`);
+        
+        if (usitcResponse.success && usitcResponse.data) {
+          const foundRate = usitcResponse.data.find(r => r.hsCode === hsCode);
+          console.log(`🔎 [API] Searching USITC data for ${hsCode}:`, foundRate ? `Found: ${foundRate.effectiveRate}%` : 'Not found');
+          
+          if (foundRate) {
+            rate = foundRate.effectiveRate;
+            dataSource = 'USITC_DataWeb';
+            console.log(`✅ [API] Found rate via USITC: ${hsCode} = ${rate}% - Request: ${requestId}`);
+          }
+        } else {
+          console.log(`❌ [API] USITC API call failed or returned no data for ${hsCode}`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ [API] USITC lookup failed for ${hsCode}:`, error);
+      }
+    }
+
+    // Fallback to Preston's predefined rates if available
+    if (rate === null) {
+      console.log(`🔄 [API] Attempting Preston fallback rates for ${hsCode}`);
+      try {
+        const prestonRates = await getPrestonCurrentRates();
+        console.log(`📋 [API] Preston rates available:`, Object.keys(prestonRates));
+        
+        if (prestonRates[hsCode] !== undefined) {
+          rate = prestonRates[hsCode];
+          dataSource = 'fallback';
+          console.log(`✅ [API] Found rate in Preston fallback: ${hsCode} = ${rate}% - Request: ${requestId}`);
+        } else {
+          console.log(`❌ [API] HS code ${hsCode} not found in Preston fallback rates`);
+        }
+      } catch (error) {
+        console.warn(`⚠️ [API] Preston fallback lookup failed for ${hsCode}:`, error);
+      }
+    }
+
+    // Final result logging
+    const finalResponse = {
+      success: true,
+      rate: rate,
+      hsCode: hsCode,
+      source: dataSource,
+      timestamp: new Date().toISOString(),
+      requestId,
+    };
+    
+    console.log(`🎯 [API] Final response for ${hsCode}:`, finalResponse);
+    console.log(`📊 [API] Rate lookup summary - HS: ${hsCode}, Rate: ${rate}, Source: ${dataSource}, Success: ${rate !== null}`);
+
+    // Return response in format expected by calculator
+    return NextResponse.json(finalResponse);
+
+  } catch (error) {
+    console.error(`❌ [API] Single HS code lookup failed - Request: ${requestId}, HS: ${hsCode}:`, error);
+    
+    const errorResponse = {
+      success: false,
+      rate: null,
+      error: error instanceof Error ? error.message : 'Internal server error',
+      timestamp: new Date().toISOString(),
+      requestId,
+    };
+    
+    console.log(`💥 [API] Error response for ${hsCode}:`, errorResponse);
+    
+    return NextResponse.json(errorResponse, { status: 500 });
+  }
+}
 
 function generateRequestId(): string {
   return `rates-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
