@@ -1,14 +1,25 @@
 /**
  * USITC DataWeb API Client
- * 
- * This module provides integration with the USITC DataWeb API for retrieving
- * current official tariff rates for Preston's steel importing business.
+ *
+ * Purpose:
+ * - Query the USITC DataWeb for the latest official tariff information
+ * - Normalize responses into a consistent shape for the app
+ * - Provide safe fallbacks when the upstream API is unavailable
+ *
+ * Configuration (environment variables):
+ * - USITC_BASE_URL: Base URL for the USITC API (defaults to production endpoint)
+ * - USITC_API_KEY: Bearer token used to authenticate requests
+ *
+ * Notes:
+ * - Requests are rate-limited and retried with backoff
+ * - If the live API is unreachable, we fall back to expected rates so the
+ *   application continues to function with clearly logged warnings
  */
 
-// Configuration
+// Configuration: API base URL and key are read from env; timeouts/retry control request behavior
 const USITC_CONFIG = {
-  baseUrl: process.env.USITC_BASE_URL || 'https://datawebws.usitc.gov/dataweb',
-  apiKey: process.env.USITC_API_KEY,
+  baseUrl: (globalThis as any).process?.env?.USITC_BASE_URL || 'https://datawebws.usitc.gov/dataweb',
+  apiKey: (globalThis as any).process?.env?.USITC_API_KEY,
   timeout: 10000, // 10 seconds
   retryAttempts: 3,
   retryDelay: 1000, // 1 second
@@ -34,7 +45,7 @@ export const PRESTON_HS_CODES_USITC = {
     containersPeryear: 18,
     expectedRate: 25.0, // Section 232 steel tariff
   },
-} as const
+} as const // Fallback HS codes and business context used when USITC API is unavailable
 
 // Types
 export interface USITCTariffRate {
