@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 /**
  * Get Subscription Status API
  * Returns current subscription information and usage statistics
