@@ -28,19 +28,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // TODO: Re-enable usage limits when billing is implemented
     // Check usage limits before saving
-    try {
-      await enforceUsageLimit(workspaceId)
-    } catch (error) {
-      return NextResponse.json(
-        { 
-          error: 'Usage limit exceeded',
-          message: error instanceof Error ? error.message : 'Unknown error',
-          limitExceeded: true
-        },
-        { status: 403 }
-      )
-    }
+    // try {
+    //   await enforceUsageLimit(workspaceId)
+    // } catch (error) {
+    //   return NextResponse.json(
+    //     { 
+    //       error: 'Usage limit exceeded',
+    //       message: error instanceof Error ? error.message : 'Unknown error',
+    //       limitExceeded: true
+    //     },
+    //     { status: 403 }
+    //   )
+    // }
 
     // Save the calculation
     const { data: calculation, error: saveError } = await supabase
