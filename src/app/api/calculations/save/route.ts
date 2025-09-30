@@ -16,9 +16,7 @@ export async function POST(request: NextRequest) {
       name, 
       lineItems, 
       totalValue, 
-      totalDuty, 
-      effectiveRate,
-      metadata 
+      totalDuty
     } = await request.json()
 
     if (!workspaceId || !name || !lineItems || !Array.isArray(lineItems)) {
@@ -51,9 +49,7 @@ export async function POST(request: NextRequest) {
         name: name.trim(),
         line_items: lineItems,
         total_value: totalValue || 0,
-        total_duty: totalDuty || 0,
-        effective_rate: effectiveRate || 0,
-        metadata: metadata || {}
+        total_duty: totalDuty || 0
       })
       .select()
       .single()
@@ -81,7 +77,7 @@ export async function POST(request: NextRequest) {
         name: calculation.name,
         totalValue: calculation.total_value,
         totalDuty: calculation.total_duty,
-        effectiveRate: calculation.effective_rate,
+        effectiveRate: calculation.total_value > 0 ? (calculation.total_duty / calculation.total_value) * 100 : 0,
         createdAt: calculation.created_at,
         lineItemsCount: lineItems.length
       }
@@ -145,7 +141,7 @@ export async function GET(request: NextRequest) {
         name: calc.name,
         totalValue: calc.total_value,
         totalDuty: calc.total_duty,
-        effectiveRate: calc.effective_rate,
+        effectiveRate: calc.total_value > 0 ? (calc.total_duty / calc.total_value) * 100 : 0,
         lineItemsCount: Array.isArray(calc.line_items) ? calc.line_items.length : 0,
         createdAt: calc.created_at,
         updatedAt: calc.updated_at
