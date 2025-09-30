@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 /**
  * API Usage Analytics
  * Provides usage statistics and analytics for API tokens
