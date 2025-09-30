@@ -25,6 +25,8 @@ const USITC_CONFIG = {
   retryDelay: 1000, // 1 second
 } as const
 
+// Documentation touch: verified USITC client configs and defaults
+
 // Preston's HS codes for USITC queries
 export const PRESTON_HS_CODES_USITC = {
   '7318.15.20': {
