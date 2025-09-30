@@ -277,6 +277,8 @@ async function handleSingleHsCodeLookup(hsCode: string, source: string, requestI
       const cleanHsCode = hsCode.replace(/\./g, '');
       console.log(`🔧 [API] Cleaned HS code for DB query: ${cleanHsCode}`);
       
+      console.log(`🗂️ [API] DB lookup hs_code candidates: ["${hsCode}", "${cleanHsCode}"]`)
+
       const { data: dbRate, error } = await supabase
         .from('tariff_rates')
         .select('current_rate, general_rate')
@@ -289,9 +291,9 @@ async function handleSingleHsCodeLookup(hsCode: string, source: string, requestI
       if (!error && dbRate) {
         rate = dbRate.current_rate || dbRate.general_rate || 0;
         dataSource = 'database';
-        console.log(`✅ [API] Found rate in database: ${hsCode} = ${rate}% - Request: ${requestId}`);
+        console.log(`✅ [API] DB match for hs_code (raw/digits): [${hsCode}/${cleanHsCode}] → current_rate=${dbRate.current_rate}, general_rate=${dbRate.general_rate}, chosen=${rate}`);
       } else {
-        console.log(`❌ [API] No rate found in database for ${hsCode} - Error: ${error?.message || 'No data'}`);
+        console.log(`❌ [API] No DB match for hs_code (raw/digits): [${hsCode}/${cleanHsCode}] - Error: ${error?.message || 'No data'}`);
       }
     } catch (dbError) {
       console.warn(`⚠️ [API] Database lookup failed for ${hsCode}, trying external sources:`, dbError);
