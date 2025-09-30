@@ -280,8 +280,8 @@ async function handleSingleHsCodeLookup(hsCode: string, source: string, requestI
       const { data: dbRate, error } = await supabase
         .from('tariff_rates')
         .select('current_rate, general_rate')
-        .eq('hs_code', cleanHsCode)
         .eq('is_current', true)
+        .or(`hs_code.eq.${hsCode},hs_code.eq.${cleanHsCode}`)
         .single();
 
       console.log(`📊 [API] Database query result - error: ${error?.message || 'none'}, data:`, dbRate);
