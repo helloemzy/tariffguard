@@ -271,11 +271,7 @@ export default function CalculatorPage() {
           lineItems: result.lineItems,
           totalValue: result.totalValue,
           totalDuty: result.totalDuty,
-          effectiveRate: result.effectiveRate,
-          metadata: {
-            source: activeTab === 'upload' ? 'document_upload' : 'manual_entry',
-            itemCount: result.lineItems.length
-          }
+          effectiveRate: result.effectiveRate
         })
       })
 
