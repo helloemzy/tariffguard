@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase-server'
-import { enforceUsageLimit, incrementCalculationUsage } from '@/lib/usage-tracking'
+import { incrementCalculationUsage } from '@/lib/usage-tracking'
 
 export async function POST(request: NextRequest) {
   const supabase = createServerSupabaseClient()
