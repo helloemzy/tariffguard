@@ -235,13 +235,13 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - name: Download current results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: lighthouse-results-${{ github.sha }}
           path: current-results/
 
       - name: Download baseline results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           name: lighthouse-results-baseline
           path: baseline-results/
