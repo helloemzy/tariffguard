@@ -121,7 +121,7 @@
     "zod": "^3.22.0"
   },
   "devDependencies": {
-    "@axe-core/cli": "^4.10.2",
+    "@axe-core/cli": "^4.11.0",
     "@commitlint/cli": "^19.6.0",
     "@commitlint/config-conventional": "^19.6.0",
     "@lhci/cli": "^0.13.0",
