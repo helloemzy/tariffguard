@@ -237,7 +237,7 @@ jobs:
           fi
 
       - name: Upload Performance Results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: performance-results-${{ github.run_id }}
           path: |
@@ -515,7 +515,7 @@ jobs:
           echo "Last Check: $(date -u)" >> monitoring-status.txt
 
       - name: Store Monitoring Results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: monitoring-results-${{ github.run_id }}
           path: |
