@@ -172,7 +172,7 @@ jobs:
       - name: Download Historical Baseline
         id: download-baseline
         continue-on-error: true
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: performance-baseline-latest
           path: ./historical-baseline/
