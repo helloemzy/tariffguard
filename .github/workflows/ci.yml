@@ -33,7 +33,7 @@ jobs:
 
       - name: Cache dependencies
         id: cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -67,7 +67,7 @@ jobs:
           cache: 'npm'
 
       - name: Restore dependencies and build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -121,7 +121,7 @@ jobs:
           cache: 'npm'
 
       - name: Restore dependencies and build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -185,7 +185,7 @@ jobs:
           cache: 'npm'
 
       - name: Restore dependencies and build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
@@ -240,7 +240,7 @@ jobs:
 
       - name: Cache build artifacts and analyze bundle
         if: matrix.node-version == '18.x'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             .next/cache
@@ -277,7 +277,7 @@ jobs:
           cache: 'npm'
 
       - name: Restore dependencies and build cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             node_modules
