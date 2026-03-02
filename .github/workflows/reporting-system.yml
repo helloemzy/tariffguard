@@ -522,7 +522,7 @@ jobs:
 
     steps:
       - name: Download Report Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: system-report-${{ needs.generate-system-report.outputs.report-type }}-${{ needs.generate-system-report.outputs.report-date }}
           path: ./reports/
