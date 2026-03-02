@@ -86,7 +86,7 @@ jobs:
           npm run quality:complexity-simple || true
 
       - name: Upload complexity reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: complexity-reports
           path: quality-reports/complexity*
@@ -125,7 +125,7 @@ jobs:
           npm run quality:duplicates || true
 
       - name: Upload duplication reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: duplication-reports
           path: quality-reports/duplicates/
@@ -166,7 +166,7 @@ jobs:
           npm run quality:imports || true
 
       - name: Upload dependency reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-reports
           path: |
@@ -208,7 +208,7 @@ jobs:
           npm run quality:type-coverage || true
 
       - name: Upload type coverage reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: type-coverage-reports
           path: quality-reports/type-coverage/
@@ -257,7 +257,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Upload security reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-reports
           path: |
@@ -320,7 +320,7 @@ jobs:
           key: ${{ runner.os }}-build-${{ github.sha }}
 
       - name: Upload performance reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: performance-reports
           path: |
@@ -400,7 +400,7 @@ jobs:
           fi
 
       - name: Upload accessibility reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: accessibility-reports
           path: |
@@ -450,7 +450,7 @@ jobs:
           ls -la quality-reports/
 
       - name: Upload final quality report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: comprehensive-quality-report
           path: |

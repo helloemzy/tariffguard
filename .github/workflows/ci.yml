@@ -253,7 +253,7 @@ jobs:
 
       - name: Upload build analysis
         if: matrix.node-version == '18.x'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: build-analysis-${{ github.sha }}
           path: |
