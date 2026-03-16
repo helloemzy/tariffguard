@@ -161,7 +161,7 @@
     "typecov": "^0.2.3",
     "unimported": "^1.31.1",
     "unlighthouse": "^0.13.2",
-    "web-vitals": "^4.2.4",
+    "web-vitals": "^5.1.0",
     "webpack-bundle-analyzer": "^4.10.0"
   },
   "engines": {
